@@ -1,0 +1,61 @@
+[project]
+name = "setsmith"
+version = "0.2.0"
+description = "Transition-aware DJ set builder for Rekordbox"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "lxml>=5.2",
+    "typer>=0.12",
+    "rich>=13.7",
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+graph = ["networkx>=3.3"]
+
+[project.scripts]
+setsmith = "setsmith.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6.100",
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["setsmith*"]
+
+[tool.setuptools.package-data]
+"setsmith.styles" = ["profiles/*.json"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PLR2004"]
+
+[tool.ruff.lint.per-file-ignores]
+# Thresholds live in weights.py; tests assert on literal values by design.
+"setsmith/scoring/weights.py" = ["PLR2004"]
+"tests/**" = ["PLR2004"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["lxml", "lxml.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["perf: performance tests on a large synthetic collection"]

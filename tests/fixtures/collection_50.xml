@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<DJ_PLAYLISTS Version="1.0.0">
+  <PRODUCT Name="rekordbox" Version="7.0.4" Company="AlphaTheta"/>
+  <COLLECTION Entries="50">
+    <TRACK TrackID="1" Name="Tidal Drum" Artist="Kaya Sol" Composer="" Album="" Grouping="" Genre="Afro House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="122.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E6" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Kaya%20Sol%20-%20Tidal%20Drum.mp3" Remixer="" Tonality="Am" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="122.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="2" Name="Canopy" Artist="Moana Reyes" Composer="" Album="" Grouping="" Genre="Afro House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="122.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E6" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Moana%20Reyes%20-%20Canopy.mp3" Remixer="" Tonality="Am" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="122.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="3" Name="Lantern Song" Artist="Ines Okafor" Composer="" Album="" Grouping="" Genre="Afro House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="123.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E7" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Ines%20Okafor%20-%20Lantern%20Song.mp3" Remixer="" Tonality="Em" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="123.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="4" Name="Velvet Drift" Artist="Tomas Lind" Composer="" Album="" Grouping="" Genre="Organic House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="121.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E6" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Tomas%20Lind%20-%20Velvet%20Drift.mp3" Remixer="" Tonality="C" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="121.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="5" Name="Tidal Drum" Artist="Kaya Sol" Composer="" Album="" Grouping="" Genre="Afro House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="122.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E6" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Kaya%20Sol%20-%20Tidal%20Drum.mp3" Remixer="" Tonality="Am" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="122.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="6" Name="Snare Theory" Artist="Dex Marlo" Composer="" Album="" Grouping="" Genre="Tech House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="128.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E8" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Dex%20Marlo%20-%20Snare%20Theory.mp3" Remixer="" Tonality="Gm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="128.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="7" Name="Static Bloom" Artist="Rafa Vance" Composer="" Album="" Grouping="" Genre="Tech House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="128.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E8" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Rafa%20Vance%20-%20Static%20Bloom.mp3" Remixer="" Tonality="6A" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="128.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="8" Name="Signal" Artist="Juno Brandt" Composer="" Album="" Grouping="" Genre="House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="129.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E8" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Juno%20Brandt%20-%20Signal.mp3" Remixer="" Tonality="Dm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="129.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="9" Name="Fable Canopy 9" Artist="Tomas Brandt" Composer="" Album="" Grouping="" Genre="Deep House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="138.60" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E2" PlayCount="0" Rating="51" Location="file://localhost/Users/dj/Music/Synth/Tomas%20Brandt%20-%20Fable%20Canopy%209.mp3" Remixer="" Tonality="Gm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="138.60" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="10" Name="Velvet Signal 10" Artist="Tomas Lind" Composer="" Album="" Grouping="" Genre="Minimal / Deep Tech" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="138.48" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E2" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Tomas%20Lind%20-%20Velvet%20Signal%2010.mp3" Remixer="" Tonality="Gm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="138.48" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="11" Name="Velvet Canopy 11" Artist="Rafa Sol" Composer="" Album="" Grouping="" Genre="Melodic House &amp; Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="139.86" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E8" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Rafa%20Sol%20-%20Velvet%20Canopy%2011.mp3" Remixer="" Tonality="G" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="139.86" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="12" Name="Drift Bloom 12" Artist="Sade Brandt" Composer="" Album="" Grouping="" Genre="Melodic House &amp; Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="142.78" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Sade%20Brandt%20-%20Drift%20Bloom%2012.mp3" Remixer="" Tonality="Bb" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="142.78" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="13" Name="Pulse Fable 13" Artist="Oli Keel" Composer="" Album="" Grouping="" Genre="House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="141.99" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E6" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Oli%20Keel%20-%20Pulse%20Fable%2013.mp3" Remixer="" Tonality="E" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="141.99" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="14" Name="Fable Velvet 14" Artist="Kaya Vance" Composer="" Album="" Grouping="" Genre="Organic House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="0.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/Synth/Kaya%20Vance%20-%20Fable%20Velvet%2014.mp3" Remixer="" Tonality="" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="0.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="15" Name="Ember Ember 15" Artist="Dex Lind" Composer="" Album="" Grouping="" Genre="Deep House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="109.49" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E5" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Dex%20Lind%20-%20Ember%20Ember%2015.mp3" Remixer="" Tonality="Bm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="109.49" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="16" Name="Fable Lantern 16" Artist="Rafa Vance" Composer="" Album="" Grouping="" Genre="Afro House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="140.82" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/Synth/Rafa%20Vance%20-%20Fable%20Lantern%2016.mp3" Remixer="" Tonality="Dm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="140.82" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="17" Name="Dust Canopy 17" Artist="Sade Sol" Composer="" Album="" Grouping="" Genre="Indie Dance" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="107.83" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/Synth/Sade%20Sol%20-%20Dust%20Canopy%2017.mp3" Remixer="" Tonality="B" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="107.83" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="18" Name="Lantern Tidal 18" Artist="Dex Reyes" Composer="" Album="" Grouping="" Genre="Organic House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="139.12" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E6" PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/Synth/Dex%20Reyes%20-%20Lantern%20Tidal%2018.mp3" Remixer="" Tonality="Em" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="139.12" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="19" Name="Tidal Pulse 19" Artist="Dex Okafor" Composer="" Album="" Grouping="" Genre="Tech House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="102.41" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E4" PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/Synth/Dex%20Okafor%20-%20Tidal%20Pulse%2019.mp3" Remixer="" Tonality="G" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="102.41" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="20" Name="Canopy Ember 20" Artist="Tomas Vance" Composer="" Album="" Grouping="" Genre="House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="139.02" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E2" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Tomas%20Vance%20-%20Canopy%20Ember%2020.mp3" Remixer="" Tonality="A" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="139.02" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="21" Name="Drift Drift 21" Artist="Ines Keel" Composer="" Album="" Grouping="" Genre="Melodic House &amp; Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="141.92" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E8" PlayCount="0" Rating="153" Location="file://localhost/Users/dj/Music/Synth/Ines%20Keel%20-%20Drift%20Drift%2021.mp3" Remixer="" Tonality="Am" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="141.92" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="22" Name="Orbit Velvet 22" Artist="Sade Brandt" Composer="" Album="" Grouping="" Genre="Deep House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="142.01" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E4" PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/Synth/Sade%20Brandt%20-%20Orbit%20Velvet%2022.mp3" Remixer="" Tonality="Ebm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="142.01" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="23" Name="Static Tidal 23" Artist="Nils Okafor" Composer="" Album="" Grouping="" Genre="Melodic House &amp; Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="143.12" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Nils%20Okafor%20-%20Static%20Tidal%2023.mp3" Remixer="" Tonality="B" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="143.12" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="24" Name="Ember Dust 24" Artist="Juno Vance" Composer="" Album="" Grouping="" Genre="Organic House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="141.46" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Juno%20Vance%20-%20Ember%20Dust%2024.mp3" Remixer="" Tonality="Abm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="141.46" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="25" Name="Dust Echo 25" Artist="Dex Noor" Composer="" Album="" Grouping="" Genre="Indie Dance" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="0.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/Synth/Dex%20Noor%20-%20Dust%20Echo%2025.mp3" Remixer="" Tonality="" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="0.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="26" Name="Signal Lantern 26" Artist="Tomas Sol" Composer="" Album="" Grouping="" Genre="Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="98.37" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E8" PlayCount="0" Rating="51" Location="file://localhost/Users/dj/Music/Synth/Tomas%20Sol%20-%20Signal%20Lantern%2026.mp3" Remixer="" Tonality="F#m" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="98.37" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="27" Name="Drift Lantern 27" Artist="Rafa Sol" Composer="" Album="" Grouping="" Genre="Minimal / Deep Tech" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="108.40" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E1" PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/Synth/Rafa%20Sol%20-%20Drift%20Lantern%2027.mp3" Remixer="" Tonality="Dm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="108.40" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="28" Name="Drift Fable 28" Artist="Tomas Vance" Composer="" Album="" Grouping="" Genre="Indie Dance" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="141.23" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E2" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Tomas%20Vance%20-%20Drift%20Fable%2028.mp3" Remixer="" Tonality="D" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="141.23" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="29" Name="Tidal Fable 29" Artist="Dex Marlo" Composer="" Album="" Grouping="" Genre="Indie Dance" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="99.35" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E7" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Dex%20Marlo%20-%20Tidal%20Fable%2029.mp3" Remixer="" Tonality="Cm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="99.35" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="30" Name="Ember Signal 30" Artist="Sade Marlo" Composer="" Album="" Grouping="" Genre="Tech House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="140.76" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E6" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Sade%20Marlo%20-%20Ember%20Signal%2030.mp3" Remixer="" Tonality="Fm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="140.76" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="31" Name="Drift Lantern 31" Artist="Juno Marlo" Composer="" Album="" Grouping="" Genre="Indie Dance" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="144.29" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Juno%20Marlo%20-%20Drift%20Lantern%2031.mp3" Remixer="" Tonality="Eb" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="144.29" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="32" Name="Bloom Signal 32" Artist="Oli Sol" Composer="" Album="" Grouping="" Genre="House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="139.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="153" Location="file://localhost/Users/dj/Music/Synth/Oli%20Sol%20-%20Bloom%20Signal%2032.mp3" Remixer="" Tonality="F#" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="139.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="33" Name="Velvet Mirage 33" Artist="Dex Marlo" Composer="" Album="" Grouping="" Genre="Afro House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="0.00" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Dex%20Marlo%20-%20Velvet%20Mirage%2033.mp3" Remixer="" Tonality="" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="0.00" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="34" Name="Bloom Canopy 34" Artist="Oli Vance" Composer="" Album="" Grouping="" Genre="Tech House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="102.91" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E8" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Oli%20Vance%20-%20Bloom%20Canopy%2034.mp3" Remixer="" Tonality="Eb" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="102.91" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="35" Name="Static Echo 35" Artist="Moana Vance" Composer="" Album="" Grouping="" Genre="Tech House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="108.80" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E10" PlayCount="0" Rating="153" Location="file://localhost/Users/dj/Music/Synth/Moana%20Vance%20-%20Static%20Echo%2035.mp3" Remixer="" Tonality="Bb" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="108.80" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="36" Name="Ember Mirage 36" Artist="Dex Reyes" Composer="" Album="" Grouping="" Genre="Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="104.26" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E9" PlayCount="0" Rating="153" Location="file://localhost/Users/dj/Music/Synth/Dex%20Reyes%20-%20Ember%20Mirage%2036.mp3" Remixer="" Tonality="F" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="104.26" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="37" Name="Signal Tidal 37" Artist="Juno Okafor" Composer="" Album="" Grouping="" Genre="Melodic House &amp; Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="108.47" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E2" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Juno%20Okafor%20-%20Signal%20Tidal%2037.mp3" Remixer="" Tonality="Db" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="108.47" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="38" Name="Lantern Tidal 38" Artist="Kaya Lind" Composer="" Album="" Grouping="" Genre="House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="141.07" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E2" PlayCount="0" Rating="255" Location="file://localhost/Users/dj/Music/Synth/Kaya%20Lind%20-%20Lantern%20Tidal%2038.mp3" Remixer="" Tonality="F#" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="141.07" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="39" Name="Pulse Velvet 39" Artist="Rafa Marlo" Composer="" Album="" Grouping="" Genre="Afro House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="99.25" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E7" PlayCount="0" Rating="153" Location="file://localhost/Users/dj/Music/Synth/Rafa%20Marlo%20-%20Pulse%20Velvet%2039.mp3" Remixer="" Tonality="Am" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="99.25" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="40" Name="Velvet Dust 40" Artist="Kaya Marlo" Composer="" Album="" Grouping="" Genre="Tech House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="139.82" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E4" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Kaya%20Marlo%20-%20Velvet%20Dust%2040.mp3" Remixer="" Tonality="Bb" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="139.82" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="41" Name="Velvet Echo 41" Artist="Juno Vance" Composer="" Album="" Grouping="" Genre="House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="143.39" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E10" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Juno%20Vance%20-%20Velvet%20Echo%2041.mp3" Remixer="" Tonality="Eb" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="143.39" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="42" Name="Fable Orbit 42" Artist="Moana Keel" Composer="" Album="" Grouping="" Genre="Melodic House &amp; Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="103.94" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Moana%20Keel%20-%20Fable%20Orbit%2042.mp3" Remixer="" Tonality="Bbm" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="103.94" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="43" Name="Orbit Drift 43" Artist="Oli Reyes" Composer="" Album="" Grouping="" Genre="Minimal / Deep Tech" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="144.31" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E4" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Oli%20Reyes%20-%20Orbit%20Drift%2043.mp3" Remixer="" Tonality="Bb" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="144.31" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="44" Name="Fable Harbour 44" Artist="Nils Lind" Composer="" Album="" Grouping="" Genre="Afro House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="97.44" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E2" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Nils%20Lind%20-%20Fable%20Harbour%2044.mp3" Remixer="" Tonality="Am" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="97.44" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="45" Name="Tidal Canopy 45" Artist="Ines Marlo" Composer="" Album="" Grouping="" Genre="Tech House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="143.79" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="204" Location="file://localhost/Users/dj/Music/Synth/Ines%20Marlo%20-%20Tidal%20Canopy%2045.mp3" Remixer="" Tonality="Bb" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="143.79" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="46" Name="Tidal Tidal 46" Artist="Juno Vance" Composer="" Album="" Grouping="" Genre="Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="99.45" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="" PlayCount="0" Rating="153" Location="file://localhost/Users/dj/Music/Synth/Juno%20Vance%20-%20Tidal%20Tidal%2046.mp3" Remixer="" Tonality="G" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="99.45" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="47" Name="Canopy Lantern 47" Artist="Nils Noor" Composer="" Album="" Grouping="" Genre="Minimal / Deep Tech" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="105.94" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E9" PlayCount="0" Rating="0" Location="file://localhost/Users/dj/Music/Synth/Nils%20Noor%20-%20Canopy%20Lantern%2047.mp3" Remixer="" Tonality="Eb" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="105.94" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="48" Name="Harbour Echo 48" Artist="Nils Brandt" Composer="" Album="" Grouping="" Genre="Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="144.53" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E10" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Nils%20Brandt%20-%20Harbour%20Echo%2048.mp3" Remixer="" Tonality="Db" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="144.53" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="49" Name="Bloom Mirage 49" Artist="Moana Sol" Composer="" Album="" Grouping="" Genre="Techno" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="102.32" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E8" PlayCount="0" Rating="102" Location="file://localhost/Users/dj/Music/Synth/Moana%20Sol%20-%20Bloom%20Mirage%2049.mp3" Remixer="" Tonality="D" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="102.32" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+    <TRACK TrackID="50" Name="Ember Ember 50" Artist="Moana Okafor" Composer="" Album="" Grouping="" Genre="House" Kind="MP3 File" Size="12000000" TotalTime="384" DiscNumber="0" TrackNumber="0" Year="2024" AverageBpm="98.53" DateAdded="2024-06-01" BitRate="320" SampleRate="44100" Comments="E8" PlayCount="0" Rating="51" Location="file://localhost/Users/dj/Music/Synth/Moana%20Okafor%20-%20Ember%20Ember%2050.mp3" Remixer="" Tonality="F#m" Label="Synthetic" Mix="">
+      <TEMPO Inizio="0.050" Bpm="98.53" Metro="4/4" Battito="1"/>
+      <POSITION_MARK Name="" Type="0" Start="0.050" Num="-1"/>
+    </TRACK>
+  </COLLECTION>
+  <PLAYLISTS>
+    <NODE Type="0" Name="ROOT" Count="0"/>
+  </PLAYLISTS>
+</DJ_PLAYLISTS>
