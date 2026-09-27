@@ -292,3 +292,9 @@ def test_property_upper_bound_never_undercounts(a: Track, b: Track) -> None:
     assert base_upper_bound(a, b) >= base - 1e-9
     assert harmonic_score(a, b) == s.components["harmonic"].score
     assert tempo_score(a, b) == s.components["tempo"].score
+
+
+def test_short_sections_explained() -> None:
+    s = score_transition(mk("a", outro_bars=16), mk("b", intro_bars=8))
+    assert s.suggested_type == TransitionType.FILTER_SWEEP
+    assert "too short for a long blend" in s.type_reason

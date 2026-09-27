@@ -224,6 +224,77 @@ class SetConfig(_Config):
     }
 
 
+class AnalysisConfig(_Config):
+    """Phase 3 local audio analysis."""
+
+    version: int = 1  # bump when analysis logic changes, so cached results are redone
+    sample_rate: int = 22050  # librosa features
+    essentia_sample_rate: int = 44100
+    hop_length: int = 512
+    min_duration_s: float = 30.0  # shorter files are skipped
+    essentia_key_profile: str = "edma"  # or "bgate", "edmm", "temperley", ...
+    # Krumhansl-Kessler key profiles (C major / C minor) for the librosa fallback detector.
+    kk_major: tuple[float, ...] = (
+        6.35,
+        2.23,
+        3.48,
+        2.33,
+        4.38,
+        4.09,
+        2.52,
+        5.19,
+        2.39,
+        3.66,
+        2.29,
+        2.88,
+    )
+    kk_minor: tuple[float, ...] = (
+        6.33,
+        2.68,
+        3.52,
+        5.38,
+        2.60,
+        3.53,
+        2.54,
+        4.75,
+        3.98,
+        2.69,
+        3.34,
+        3.17,
+    )
+
+    # Energy 1-10: weighted z-scores of these features, ranked across the library.
+    energy_features: dict[str, float] = {
+        "loudness_db": 0.4,
+        "onset_rate": 0.3,
+        "spectral_centroid_hz": 0.15,
+        "spectral_flux": 0.15,
+    }
+    energy_decimals: int = 1
+
+    # Intro/outro from per-bar harmonic energy on the beat grid. Harmonic/percussive
+    # separation removes kicks and hats, so drum-only intros read as low. A coarse
+    # spectrogram limited to 4 kHz keeps this well under a second per track.
+    structure_n_fft: int = 4096
+    structure_hop: int = 2048
+    structure_max_hz: float = 4000.0
+    hpss_kernel: int = 9
+    level_floor_db: float = -120.0
+    min_bar_fraction: float = 0.5  # drop a trailing partial bar shorter than this
+    full_level_percentile: float = 75.0  # "full" level of the track
+    full_margin_db: float = 4.0  # a bar within this of the full level counts as full
+    full_min_bars: int = 4  # the full section must hold this long
+    phrase_bars: int = 8  # intro/outro lengths snap to multiples of this
+    max_section_fraction: float = 0.5  # longer "intros" are treated as detection failures
+    default_beats_per_bar: int = 4
+
+    # Key confidence after comparing the detected key with the Rekordbox tag.
+    key_confidence_agree: float = 1.0
+    key_confidence_related: float = 0.7  # adjacent or relative: common detector confusions
+    key_confidence_disagree: float = 0.4
+    key_confidence_detected_only: float = 0.8  # no usable tag: the detected key is used
+
+
 class ScoringConfig(_Config):
     weights: ComponentWeights = ComponentWeights()
     tempo: TempoConfig = TempoConfig()
@@ -235,6 +306,7 @@ class ScoringConfig(_Config):
     search: SearchConfig = SearchConfig()
     display: DisplayConfig = DisplayConfig()
     sets: SetConfig = SetConfig()
+    analysis: AnalysisConfig = AnalysisConfig()
 
 
 DEFAULT_CONFIG = ScoringConfig()

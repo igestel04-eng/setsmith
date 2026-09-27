@@ -73,6 +73,7 @@ class Track:
     cues: list[CuePoint] = field(default_factory=list)
     energy: float | None = None
     energy_source: EnergySource | None = None
+    detected_camelot: str | None = None  # Phase 3: key detected from the audio
     vocal: bool | None = None
     intro_bars: int | None = None
     outro_bars: int | None = None
@@ -96,10 +97,13 @@ class Track:
             "key_name": key.name if key else None,
             "key_raw": self.key_raw,
             "key_confidence": self.key_confidence,
+            "detected_key": self.detected_camelot,
             "energy": self.energy,
             "energy_source": self.energy_source.value if self.energy_source else None,
             "genre": self.genre,
             "rating": self.rating,
+            "intro_bars": self.intro_bars,
+            "outro_bars": self.outro_bars,
             "duration_s": self.duration_s,
             "location": self.location,
         }

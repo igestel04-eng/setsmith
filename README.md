@@ -4,7 +4,7 @@ Setsmith is a transition-aware DJ set builder for Rekordbox. It reads your Rekor
 
 Setsmith only reads your data. It never modifies your Rekordbox database or your audio files.
 
-**Status: Phase 2 (suggestions, set building, Rekordbox export, listening feedback).** Audio analysis arrives in Phase 3 and style profiles in Phase 4.
+**Status: Phase 3 (suggestions, set building, Rekordbox export, listening feedback, local audio analysis).** Style profiles arrive in Phase 4.
 
 ## Setup
 
@@ -14,6 +14,17 @@ Requires Python 3.11+. With [uv](https://docs.astral.sh/uv/):
 uv sync
 uv run setsmith --help
 ```
+
+For audio analysis (`setsmith analyze`), add the extras:
+
+```bash
+uv sync --extra audio --extra essentia
+```
+
+- `audio` installs librosa. It is required for analysis and handles beats, loudness, energy features, intro/outro detection, and a fallback key detector.
+- `essentia` adds Essentia for EDM-tuned key detection. Essentia is **AGPL-3.0**: fine for personal use, but distributing Setsmith or serving it to others with Essentia installed brings AGPL obligations. Leave the extra out to avoid that; analysis then falls back to librosa.
+
+Pass the same `--extra` flags every time you run `uv sync`, or it removes the extras. On Apple silicon, Setsmith pins Essentia to the last build with wheels for macOS 11+, which needs NumPy 1.x. Other platforms get the latest build.
 
 ## Export your collection from Rekordbox
 
@@ -74,6 +85,30 @@ uv run setsmith info ~/Music/rekordbox.xml
 ```
 
 This shows metadata coverage (BPM, key, energy, genre, rating, cues), the most common keys and genres, and parse warnings such as key tags it could not read.
+
+### `analyze`: analyze your audio files
+
+```bash
+uv run setsmith analyze ~/Music/rekordbox.xml                    # whole collection
+uv run setsmith analyze ~/Music/rekordbox.xml --playlist "Gigs/Friday"
+```
+
+`analyze` reads the file at each track's Location (never modifying it) and stores derived numbers in the Setsmith database:
+
+- **Key**: Essentia's `KeyExtractor` with the `edma` EDM profile (`--key-profile bgate` and others work too), or Krumhansl-Kessler template matching when Essentia isn't installed.
+- **Energy features**: RMS loudness, onset rate, spectral centroid and spectral flux.
+- **Intro and outro length in bars**: Setsmith walks your Rekordbox beat grid bar by bar and measures harmonic energy. Harmonic/percussive separation removes kicks and hats, so a drums-only intro reads as low and the section where the bassline and chords arrive reads as high. Results snap to 8-bar phrases. Tracks without a grid use the tag BPM, with a beat tracker for phase.
+- Detected tempo, danceability (Essentia), and optionally EBU R128 loudness (`--lufs`, slower, informational only).
+
+It runs in parallel (`--workers`, default: cores − 1) and shows progress. Unchanged files are skipped on later runs; results are keyed by path, modification time and size. Ctrl-C keeps everything finished so far. On this machine a 6-minute MP3 takes about 2.7s, so about 1,000 tracks per 6-7 minutes on 7 workers. Files that fail to decode, are shorter than 30s, or can't be found are listed at the end.
+
+After analysis, `suggest`, `build`, `info` and `feedback` use the results automatically (`--no-analysis` turns that off):
+
+- **Energy** (1-10) is calibrated to your library. Each feature becomes a z-score across your analyzed tracks, the weighted sum is ranked, and ranks are spread over 1-10. An energy tag you wrote in Comments still wins.
+- **Key confidence**: the detected key is compared with the Rekordbox tag. Agreement keeps confidence 1.0; adjacent or relative keys (typical detector confusions) give 0.7; anything else gives 0.4, which pulls harmonic scores toward neutral. The tag itself is kept, and `analyze` lists the disagreements so you can check them by ear. Tracks without a key tag take the detected key at confidence 0.8.
+- **Intro/outro bars** feed the arrangement score and the long-blend decision.
+
+**allin1 (optional, untested here).** `--structure allin1` uses [allin1](https://github.com/mir-aidj/all-in-one)'s music-structure segments instead of the beat-grid method. It is not a declared extra, because its dependencies (PyTorch, NATTEN and madmom) don't install cleanly on every platform: madmom's PyPI release fails to build here. Install it yourself following allin1's instructions. Note that madmom's model files are licensed non-commercial (CC BY-NC-SA 4.0), and allin1 downloads pretrained models on first use.
 
 ### `build`: build a whole set
 
@@ -173,17 +208,18 @@ Every number above lives in [`setsmith/scoring/weights.py`](setsmith/scoring/wei
 - **long_blend** (32 bars) when the tempo is within 4%, the harmonic score is at least 0.85, and the intro and outro are long enough.
 - **filter_sweep** (16 bars) otherwise.
 
-### Energy before audio analysis
+### Where energy comes from
 
-Rekordbox has no energy field. Until Phase 3 computes energy from the audio, Setsmith reads it from:
+Rekordbox has no energy field. Setsmith uses the first of these that exists:
 
 1. A tag in Comments: `E7`, `Energy 7`, or Mixed In Key's `8A - Energy 7`.
-2. Otherwise the star rating × 2 (for example, 3 stars becomes E6).
-3. Otherwise unknown (neutral score, flag `missing_energy`).
+2. Audio analysis (`setsmith analyze`), calibrated to your library.
+3. The star rating × 2 (for example, 3 stars becomes E6).
+4. Otherwise unknown (neutral score, flag `missing_energy`).
 
 ### Key notation
 
-Setsmith reads Camelot (`8A`), Open Key (`1m`), and classic notation (`Am`, `F#m`, `Abm`, `C`, `Db`, `A minor`, `G♯m`), including all enharmonic spellings. Key tags from Rekordbox are treated as noisy. When Phase 3 detects a different key from the audio, the track's key confidence drops and its harmonic scores move toward neutral.
+Setsmith reads Camelot (`8A`), Open Key (`1m`), and classic notation (`Am`, `F#m`, `Abm`, `C`, `Db`, `A minor`, `G♯m`), including all enharmonic spellings. Key tags from Rekordbox are treated as noisy. When `analyze` detects a different key from the audio, the track's key confidence drops and its harmonic scores move toward neutral.
 
 ## How set building works
 
@@ -207,7 +243,7 @@ All of these numbers live in `SetConfig` and `CurveTemplate` in [`setsmith/scori
 
 ## Data Setsmith stores
 
-`build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
+`analyze` (analysis results), `build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Commands that only read (`suggest`, `info`) never create the file. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
 
 ## Importing sets into Rekordbox
 
@@ -222,18 +258,19 @@ The exported file copies every track entry exactly as it appears in your export:
 ## Development
 
 ```bash
-uv run pytest                  # all tests, including the 20k-track performance tests
-uv run pytest -m "not perf"    # skip the performance tests
+uv sync --extra audio --extra essentia   # the audio tests skip themselves without these
+uv run pytest                  # all tests, including performance and audio tests
+uv run pytest -m "not perf and not audio"   # fast core tests
 uv run ruff check . && uv run ruff format --check .
 uv run mypy setsmith tests
 uv run python tests/synth.py   # regenerate tests/fixtures/collection_50.xml
 ```
 
-Test fixtures use made-up artists and titles.
+Test fixtures use made-up artists and titles. Audio tests analyze tracks synthesized on the fly by `tests/audio_synth.py` (a 124 BPM A-minor house loop with known intro and outro lengths), so no real recordings are involved.
 
 ## Guardrails
 
 - Read-only access to your library. Output always goes to new files: Setsmith never writes to its input and only replaces files it created itself (or any file with `--force`).
 - No Spotify Web API audio features, which are unavailable to new apps since 27 November 2024. No scraping of 1001Tracklists. No downloading from streaming platforms. Only local files you provide are analyzed.
-- Only derived features are stored. Audio and full tracklists are never redistributed.
+- Only derived features are stored. Audio and full tracklists are never redistributed. Audio files are opened read-only and never copied.
 - Style profiles (Phase 4) describe musical parameters in our own words. They are labeled "inspired by" and do not imply endorsement by any artist.

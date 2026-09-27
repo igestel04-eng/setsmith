@@ -1,6 +1,6 @@
 [project]
 name = "setsmith"
-version = "0.2.0"
+version = "0.3.0"
 description = "Transition-aware DJ set builder for Rekordbox"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -13,6 +13,17 @@ dependencies = [
 
 [project.optional-dependencies]
 graph = ["networkx>=3.3"]
+# Local audio analysis (Phase 3). librosa does beats, bar energy, spectral features and a
+# fallback key detector; Essentia (AGPL-3.0) adds EDM key profiles, EBU R128 loudness and
+# danceability when installed. allin1 (structure) is detected at runtime; see the README.
+audio = ["librosa>=0.10.2", "soundfile>=0.12"]
+# On Apple silicon, newer Essentia dev builds ship wheels for macOS 15+ only; this pin works
+# on macOS 11+ and is compiled against NumPy 1.x. Other platforms take the latest build.
+essentia = [
+    "essentia==2.1b6.dev1177; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "numpy<2; sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "essentia>2.1b6.dev1177; sys_platform != 'darwin' or platform_machine != 'arm64'",
+]
 
 [project.scripts]
 setsmith = "setsmith.cli:app"
@@ -53,9 +64,12 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["lxml", "lxml.*"]
+module = ["lxml", "lxml.*", "librosa", "librosa.*", "soundfile", "essentia", "essentia.*", "allin1"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["perf: performance tests on a large synthetic collection"]
+markers = [
+    "perf: performance tests on a large synthetic collection",
+    "audio: analyzes synthesized audio (needs the audio extra)",
+]

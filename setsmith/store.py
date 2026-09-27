@@ -1,4 +1,4 @@
-"""SQLite store: cached pair scores and listening feedback.
+"""SQLite store: cached pair scores, audio analysis results and listening feedback.
 
 Default location is $SETSMITH_DB, else $XDG_DATA_HOME/setsmith/setsmith.db, else
 ~/.local/share/setsmith/setsmith.db. The store holds derived numbers and your own notes
@@ -14,9 +14,12 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-SCHEMA_VERSION = 1
+if TYPE_CHECKING:
+    from setsmith.analysis.audio import TrackAnalysis
+
+SCHEMA_VERSION = 2
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -27,6 +30,14 @@ CREATE TABLE IF NOT EXISTS pair_scores (
     base REAL NOT NULL,
     boost INTEGER NOT NULL,
     PRIMARY KEY (cfg, a_fp, b_fp)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS analysis (
+    path TEXT NOT NULL,
+    mtime REAL NOT NULL,
+    size INTEGER NOT NULL,
+    version INTEGER NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (path, mtime, size, version)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS feedback (
     id INTEGER PRIMARY KEY,
@@ -94,7 +105,7 @@ class Store:
         self._conn = sqlite3.connect(self.path)
         self._conn.executescript(_SCHEMA)
         self._conn.execute(
-            "INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', ?)",
+            "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),),
         )
         self._conn.commit()
@@ -142,6 +153,54 @@ class Store:
     def clear_pair_scores(self) -> int:
         with self._conn:
             return self._conn.execute("DELETE FROM pair_scores").rowcount
+
+    # ------------------------------------------------------------ audio analysis
+
+    def save_analysis(self, analysis: TrackAnalysis) -> None:
+        """Store one result, replacing older results for the same file."""
+        with self._conn:
+            self._conn.execute("DELETE FROM analysis WHERE path = ?", (analysis.path,))
+            self._conn.execute(
+                "INSERT INTO analysis VALUES (?, ?, ?, ?, ?)",
+                (
+                    analysis.path,
+                    analysis.mtime,
+                    analysis.size,
+                    analysis.version,
+                    json.dumps(analysis.to_dict()),
+                ),
+            )
+
+    def load_analyses(
+        self, files: Iterable[tuple[str, float, int]], version: int
+    ) -> dict[str, TrackAnalysis]:
+        """Current results for (path, mtime, size) triples, by path. Stale ones are skipped."""
+        from setsmith.analysis.audio import TrackAnalysis
+
+        cur = self._conn.cursor()
+        cur.execute(
+            "CREATE TEMP TABLE IF NOT EXISTS wanted (path TEXT PRIMARY KEY, mtime REAL, size INT)"
+        )
+        cur.execute("DELETE FROM wanted")
+        cur.executemany("INSERT OR REPLACE INTO wanted VALUES (?, ?, ?)", files)
+        rows = cur.execute(
+            """SELECT a.data FROM analysis a JOIN wanted w
+               ON a.path = w.path AND a.mtime = w.mtime AND a.size = w.size
+               WHERE a.version = ?""",
+            (version,),
+        )
+        out = {}
+        for (data,) in rows:
+            analysis = TrackAnalysis.from_dict(json.loads(data))
+            out[analysis.path] = analysis
+        return out
+
+    def analyzed_paths(self) -> set[str]:
+        """Every path with any stored result, current or stale."""
+        return {row[0] for row in self._conn.execute("SELECT path FROM analysis")}
+
+    def count_analyses(self) -> int:
+        return int(self._conn.execute("SELECT COUNT(*) FROM analysis").fetchone()[0])
 
     # ------------------------------------------------------------ feedback
 

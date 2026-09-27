@@ -356,6 +356,8 @@ def _suggest_type(
     ]
     if missing:
         why = f"{' and '.join(missing)} unknown, keep the overlap short"
+    elif tempo_close and harmonic.score >= cfg.harmonic.long_blend_min_score:
+        why = f"intro/outro under {tc.long_blend_min_section_bars} bars, too short for a long blend"
     else:
         why = "compatible but not close enough for a long blend"
     return TransitionType.FILTER_SWEEP, tc.filter_sweep_bars, why

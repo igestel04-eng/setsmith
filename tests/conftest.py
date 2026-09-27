@@ -8,6 +8,14 @@ from setsmith.model.collection import Collection
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Every test gets its own Setsmith database, never the user's real one."""
+    db = tmp_path / "setsmith-test.db"
+    monkeypatch.setenv("SETSMITH_DB", str(db))
+    return db
+
+
 @pytest.fixture
 def fixture_5() -> Path:
     return FIXTURES / "collection_5.xml"

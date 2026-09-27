@@ -38,6 +38,8 @@ class SynthTrack:
     rating: int = 0
     tempo_markers: list[float] = field(default_factory=list)
     extra_comments: str = ""
+    location: str | None = None  # default: a made-up path under /Users/dj/Music
+    total_time: int = 384
 
     def to_xml(self) -> str:
         comments = " ".join(
@@ -47,11 +49,12 @@ class SynthTrack:
         attrs = {
             "TrackID": self.id, "Name": self.title, "Artist": self.artist, "Composer": "",
             "Album": "", "Grouping": "", "Genre": self.genre, "Kind": "MP3 File",
-            "Size": "12000000", "TotalTime": "384", "DiscNumber": "0", "TrackNumber": "0",
+            "Size": "12000000", "TotalTime": str(self.total_time), "DiscNumber": "0",
+            "TrackNumber": "0",
             "Year": "2024", "AverageBpm": f"{self.bpm:.2f}", "DateAdded": "2024-06-01",
             "BitRate": "320", "SampleRate": "44100", "Comments": comments, "PlayCount": "0",
             "Rating": str(self.rating * 51),
-            "Location": f"file://localhost/Users/dj/Music/Synth/{slug}.mp3",
+            "Location": self.location or f"file://localhost/Users/dj/Music/Synth/{slug}.mp3",
             "Remixer": "", "Tonality": self.key, "Label": "Synthetic", "Mix": "",
         }  # fmt: skip
         attr_text = " ".join(f"{k}={quoteattr(v)}" for k, v in attrs.items())
