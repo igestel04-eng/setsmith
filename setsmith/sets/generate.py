@@ -16,6 +16,7 @@ from __future__ import annotations
 import heapq
 import re
 import statistics
+import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -39,7 +40,8 @@ _ARTIST_SPLIT_RE = re.compile(r"\s*(?:,|&|\s(?:x|feat\.?|ft\.?|vs\.?)\s)\s*")
 @lru_cache(maxsize=65536)
 def artist_names(artist: str) -> frozenset[str]:
     """Individual artists in an Artist tag: "&ME, Rampa & Adam Port" -> 3 names."""
-    parts = _ARTIST_SPLIT_RE.split(artist.casefold())
+    # NFKC turns full-width separators (U+FF0C, common in SoundCloud uploads) into plain ones.
+    parts = _ARTIST_SPLIT_RE.split(unicodedata.normalize("NFKC", artist).casefold())
     return frozenset(n for p in parts if (n := normalize_text(p)))
 
 

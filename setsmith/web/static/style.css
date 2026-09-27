@@ -120,6 +120,9 @@ tbody tr:hover, tbody tr.selected { background: var(--panel-2); }
 .flags { color: var(--ok); font-size: 12px; }
 .alts { color: var(--muted); font-size: 12px; max-width: 220px; }
 td.track { min-width: 170px; }
+td.links { white-space: nowrap; font-size: 12px; }
+a { color: var(--accent); }
+.panel ol { margin: 8px 0 0; padding-left: 20px; display: grid; gap: 6px; }
 
 .key {
   display: inline-block; min-width: 34px; text-align: center; padding: 1px 6px; border-radius: 999px;

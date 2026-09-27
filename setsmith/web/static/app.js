@@ -44,6 +44,11 @@ function svg(tag, attrs = {}, text) {
   return node;
 }
 
+// replaceChildren would render null as the text "null"; drop empty slots first.
+function setChildren(target, ...children) {
+  target.replaceChildren(...children.flat().filter((c) => c !== null && c !== undefined && c !== false));
+}
+
 function status(target, message, isError = false) {
   target.textContent = message;
   target.classList.toggle("error", isError);
@@ -108,7 +113,7 @@ function initSearch(container) {
       if (!q) { list.hidden = true; return; }
       try {
         const rows = await api(`/api/tracks?q=${encodeURIComponent(q)}&limit=10`);
-        list.replaceChildren(...rows.map((t) => el("li", {
+        setChildren(list, ...rows.map((t) => el("li", {
           role: "option",
           onmousedown: (e) => {
             e.preventDefault();
@@ -209,7 +214,7 @@ function renderTimeline(target, { items, overlaps = [], energy = null, duration 
     }
     root.append(g);
   });
-  target.replaceChildren(root);
+  setChildren(target, root);
 }
 
 // ---------------------------------------------------------------- build
@@ -259,7 +264,7 @@ function showSetDetail(position, data) {
     parts.push(el("h3", {}, "Alternates"), el("ul", {}, position.alternates.map((a) =>
       el("li", {}, `${trackName(a.track)} `, el("span", { class: "muted" }, `${fmt(a.track.bpm, 1)} · `), keyChip(a.track.key), el("span", { class: "muted" }, ` · E${fmt(a.track.energy, 1)}`)))));
   }
-  detail.replaceChildren(...parts);
+  setChildren(detail, ...parts);
 }
 
 function renderSet(result) {
@@ -329,8 +334,8 @@ function renderSet(result) {
       el("td", { class: "alts" }, p.alternates.map((a) => trackName(a.track)).join(" · ")),
     );
   }));
-  $("#set-table").replaceChildren(head, body);
-  $("#set-detail").replaceChildren(el("p", { class: "muted" }, "Click a track for details."));
+  setChildren($("#set-table"), head, body);
+  setChildren($("#set-detail"), el("p", { class: "muted" }, "Click a track for details."));
 }
 
 function initBuild() {
@@ -379,7 +384,7 @@ function initSuggest() {
       const rows = data.suggestions.map((s, i) => el("tr", {
         onclick: (ev) => {
           document.querySelectorAll("#suggest-table tbody tr").forEach((r, j) => r.classList.toggle("selected", j === i));
-          $("#suggest-detail").replaceChildren(
+          setChildren($("#suggest-detail"), 
             el("h3", {}, `${s.rank}. ${trackName(s.track)}`),
             el("pre", {}, s.explain.join("\n")),
             s.style_fit ? el("p", { class: "muted" }, `Style fit ${fmt(s.style_fit.score, 2)}`) : null);
@@ -390,10 +395,80 @@ function initSuggest() {
         styled ? el("td", { class: "num" }, s.style_fit ? Math.round(100 * s.style_fit.score) : "-") : null,
         el("td", {}, `${s.score.suggested_type.replace("_", " ")} ${s.score.suggested_length_bars}b`),
         el("td", { class: "flags" }, s.score.flags.join(", "))));
-      $("#suggest-table").replaceChildren(head, el("tbody", {}, rows));
+      setChildren($("#suggest-table"), head, el("tbody", {}, rows));
       $("#suggest-result").hidden = false;
     } catch (err) {
       status($("#suggest-status"), err.message, true);
+    }
+  });
+}
+
+// ---------------------------------------------------------------- discover
+
+function safeLink(url, text) {
+  // Links come partly from outside services: only http(s) may become clickable.
+  if (!/^https?:\/\//i.test(url || "")) return null;
+  return el("a", { href: url, target: "_blank", rel: "noopener noreferrer" }, text);
+}
+
+function renderAttribution(target, items) {
+  const parts = [];
+  items.forEach((a, i) => { if (i) parts.push(" · "); parts.push(safeLink(a.url, a.text) || a.text); });
+  setChildren(target, ...parts);
+}
+
+function initDiscover() {
+  const form = $("#discover-form");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const seed = $('[data-search="discover"]').selectedId;
+    if (!seed) { status($("#discover-status"), "Pick a seed track from the list.", true); return; }
+    const f = new FormData(form);
+    const params = new URLSearchParams({ track_id: seed, top: "20" });
+    if (f.get("style")) params.set("style", f.get("style"));
+    if (f.get("learned") === "on") params.set("learned", "true");
+    const button = $("button[type=submit]", form);
+    button.disabled = true;
+    status($("#discover-status"), "Asking Last.fm and GetSongBPM (the first search for a seed can take up to a minute)...");
+    try {
+      const data = await api(`/api/discover?${params}`);
+      const notes = data.warnings.length ? ` Note: ${data.warnings.join("; ")}` : "";
+      status($("#discover-status"),
+        `Last.fm suggested ${data.candidates} tracks (already in your library: ${data.in_library}).${notes}`);
+      renderAttribution($("#discover-attribution"), data.attribution);
+      const styled = data.results.some((r) => r.style_fit);
+      const head = el("thead", {}, el("tr", {},
+        el("th", { class: "num" }, "#"), el("th", {}, "Track"), el("th", { class: "num" }, "BPM"), el("th", {}, "Key"),
+        el("th", {}, "Genre"), el("th", { class: "num" }, "Score"), styled ? el("th", { class: "num" }, "Style") : null,
+        el("th", {}, "Transition"), el("th", {}, "Listen / buy")));
+      const rows = data.results.map((r, i) => el("tr", {
+        onclick: () => {
+          document.querySelectorAll("#discover-table tbody tr").forEach((row, j) => row.classList.toggle("selected", j === i));
+          setChildren($("#discover-detail"), 
+            el("h3", {}, `${r.artist} - ${r.title}`),
+            el("p", { class: "muted" }, `Found as ${r.via} (Last.fm match ${fmt(r.lastfm_match, 2)})`),
+            el("pre", {}, r.explain.join("\n")),
+            r.style_fit ? el("p", { class: "muted" }, `Style fit ${fmt(r.style_fit.score, 2)}`) : null);
+        },
+      },
+        el("td", { class: "num" }, i + 1),
+        el("td", { class: "track" }, `${r.artist} - ${r.title}`),
+        el("td", { class: "num" }, fmt(r.bpm, 1)),
+        el("td", {}, r.key ? keyChip(r.key) : "-"),
+        el("td", {}, r.genre || "-"),
+        scoreCell(r.score.total),
+        styled ? el("td", { class: "num" }, r.style_fit ? Math.round(100 * r.style_fit.score) : "-") : null,
+        el("td", {}, `${r.score.suggested_type.replace("_", " ")} ${r.score.suggested_length_bars}b`),
+        el("td", { class: "links" },
+          [safeLink(r.links.soundcloud, "SoundCloud"), safeLink(r.links.beatport, "Beatport"), safeLink(r.links.lastfm, "Last.fm")]
+            .filter(Boolean).flatMap((a, j) => (j ? [" · ", a] : [a]))),
+      ));
+      setChildren($("#discover-table"), head, el("tbody", {}, rows));
+      $("#discover-result").hidden = false;
+    } catch (err) {
+      status($("#discover-status"), err.message, true);
+    } finally {
+      button.disabled = false;
     }
   });
 }
@@ -450,7 +525,7 @@ async function showLiveset(id) {
     el("td", {}, t.tempo_change_pct === null ? "-" : `${fmt(t.tempo_change_pct, 1)}%`),
     el("td", {}, t.overlap_bars === null ? "-" : `${fmt(t.overlap_bars, 1)} bars`),
     el("td", {}, mmss(t.cue_out_s)), el("td", {}, mmss(t.cue_in_s))));
-  $("#liveset-table").replaceChildren(head, el("tbody", {}, rows));
+  setChildren($("#liveset-table"), head, el("tbody", {}, rows));
 }
 
 // ---------------------------------------------------------------- start
@@ -460,6 +535,7 @@ async function init() {
   document.querySelectorAll(".search").forEach(initSearch);
   initBuild();
   initSuggest();
+  initDiscover();
   try {
     const info = await api("/api/info");
     const analyzed = info.analysis && info.analysis.analyzed ? ` · ${info.analysis.analyzed} analyzed` : "";
@@ -471,6 +547,9 @@ async function init() {
     document.querySelectorAll('select[name="style"]').forEach((select) => {
       info.styles.forEach((s) => select.append(el("option", { value: s.key }, `${s.name} (${s.bpm_band[0]}-${s.bpm_band[1]})`)));
     });
+    const discovery = info.discovery || {};
+    $("#discover-setup").hidden = Boolean(discovery.lastfm);
+    $("#discover-form").hidden = !discovery.lastfm;
     document.querySelectorAll('input[name="learned"]').forEach((box) => {
       box.disabled = !info.learned_available;
       if (!info.learned_available) box.parentElement.title = "Run 'setsmith learn' first";

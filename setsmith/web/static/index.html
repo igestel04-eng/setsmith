@@ -16,6 +16,7 @@
     <nav class="tabs" role="tablist">
       <button role="tab" data-tab="build" aria-selected="true">Build a set</button>
       <button role="tab" data-tab="suggest" aria-selected="false">Suggest next</button>
+      <button role="tab" data-tab="discover" aria-selected="false">Discover</button>
       <button role="tab" data-tab="livesets" aria-selected="false">Live sets</button>
     </nav>
   </header>
@@ -106,6 +107,38 @@
         <div class="panel table-wrap"><table id="suggest-table"></table></div>
         <aside id="suggest-detail" class="panel detail"><p class="muted">Click a suggestion for the reasoning.</p></aside>
       </div>
+    </section>
+
+    <section id="tab-discover" class="tab" role="tabpanel" hidden>
+      <div id="discover-setup" class="panel" hidden>
+        <h2>Set up discovery</h2>
+        <p class="muted">Discover finds tracks you don't own through Last.fm (similar tracks and
+          artists) and GetSongBPM (BPM and key), using your own free API keys.</p>
+        <ol>
+          <li>Create a Last.fm API key at <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">last.fm/api</a>, then run <code>setsmith keys set lastfm YOUR_KEY</code>.</li>
+          <li>Optional but recommended, for BPM and key: get a key at <a href="https://getsongbpm.com/api" target="_blank" rel="noopener noreferrer">getsongbpm.com/api</a>, then run <code>setsmith keys set getsongbpm YOUR_KEY</code>.</li>
+          <li>Restart <code>setsmith web</code>.</li>
+        </ol>
+      </div>
+      <form id="discover-form" class="panel form-grid" autocomplete="off">
+        <label class="wide">Seed track
+          <span class="search" data-search="discover">
+            <input type="search" placeholder="Artist - Title" aria-label="Seed track for discovery" required>
+            <ul class="results" hidden></ul>
+          </span>
+        </label>
+        <label>Style
+          <select name="style"><option value="">None</option></select>
+        </label>
+        <label class="check"><input name="learned" type="checkbox"> Use my learned weights</label>
+        <div class="actions"><button type="submit" class="primary">Discover</button></div>
+      </form>
+      <p id="discover-status" class="status" role="status"></p>
+      <div class="split" id="discover-result" hidden>
+        <div class="panel table-wrap"><table id="discover-table"></table></div>
+        <aside id="discover-detail" class="panel detail"><p class="muted">Click a track for the reasoning.</p></aside>
+      </div>
+      <p id="discover-attribution" class="muted small"></p>
     </section>
 
     <section id="tab-livesets" class="tab" role="tabpanel" hidden>

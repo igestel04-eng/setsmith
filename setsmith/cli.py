@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from datetime import datetime
 from enum import StrEnum
@@ -34,6 +35,11 @@ from setsmith.analysis.learn import (
 )
 from setsmith.analysis.liveset import LiveSet, analyze_liveset, compute_stats, draft_profile
 from setsmith.analysis.tracklist import load_tracklist, match_tracklist
+from setsmith.discovery.discover import ATTRIBUTIONS as DISCOVERY_ATTRIBUTIONS
+from setsmith.discovery.discover import DiscoveryUnavailable, make_sources
+from setsmith.discovery.discover import discover as run_discovery
+from setsmith.discovery.http import ServiceError
+from setsmith.discovery.keys import SERVICES, key_source, remove_key, set_key
 from setsmith.graph.build import config_key, track_fingerprint
 from setsmith.io.rekordbox_db import (
     KEY_ENV,
@@ -1645,6 +1651,136 @@ def web(
 
         webbrowser.open(url)
     uvicorn.run(application, host=host, port=port, log_level="warning")
+
+
+# ---------------------------------------------------------------- discovery
+
+
+keys_app = typer.Typer(
+    help="API keys for discovery (Last.fm, GetSongBPM). Stored readable by you only.",
+    no_args_is_help=True,
+)
+app.add_typer(keys_app, name="keys")
+
+
+class Service(StrEnum):
+    LASTFM = "lastfm"
+    GETSONGBPM = "getsongbpm"
+
+
+@keys_app.command("set")
+def keys_set(
+    service: Annotated[Service, typer.Argument(help="lastfm or getsongbpm")],
+    key: Annotated[str, typer.Argument(help="Your API key for that service.")],
+) -> None:
+    """Save an API key (an environment variable with the same purpose takes precedence)."""
+    value = key.strip()
+    if "PASTE" in value.upper() or "YOUR_" in value.upper():
+        raise typer.BadParameter(
+            "that's the placeholder text; replace it with the key the service gave you",
+            param_hint="KEY",
+        )
+    if service == Service.LASTFM and not re.fullmatch(r"[0-9a-f]{32}", value):
+        err.print(
+            "[yellow]Last.fm API keys are 32 characters of 0-9 and a-f; double-check you "
+            "copied the 'API key' (not the shared secret).[/yellow]"
+        )
+    path = set_key(service.value, value)
+    out.print(f"Saved your {service.value} key to {path} (readable by you only).")
+
+
+@keys_app.command("status")
+def keys_status(as_json: JsonOpt = False) -> None:
+    """Show which keys are configured, without printing them."""
+    rows = {name: key_source(name) for name in SERVICES}
+    if as_json:
+        _emit_json(rows)
+        return
+    for name, source in rows.items():
+        env_name, signup = SERVICES[name]
+        state = f"set ({source})" if source else f"missing: get one at {signup}"
+        out.print(f"[bold]{name}[/bold]  {state}  [dim](or ${env_name})[/dim]", highlight=False)
+
+
+@keys_app.command("remove")
+def keys_remove(service: Annotated[Service, typer.Argument(help="lastfm or getsongbpm")]) -> None:
+    """Delete a saved key from the keys file."""
+    removed = remove_key(service.value)
+    out.print(f"Removed the saved {service.value} key." if removed else "No saved key to remove.")
+
+
+def _attribution_line() -> str:
+    return "  ·  ".join(f"{text}: {url}" for text, url in DISCOVERY_ATTRIBUTIONS)
+
+
+@app.command()
+def discover(
+    collection: CollectionArg,
+    track: Annotated[
+        str | None,
+        typer.Option("--track", "-t", help='Seed track: "Artist - Title", or the title alone.'),
+    ] = None,
+    track_id: Annotated[
+        str | None, typer.Option("--id", help="Seed track by Rekordbox TrackID.")
+    ] = None,
+    top: Annotated[int, typer.Option("--top", "-n", min=1, max=50, help="Results to show.")] = 15,
+    style: StyleOpt = None,
+    learned: LearnedOpt = False,
+    db: DbOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Find tracks you don't own that would mix well after a seed track.
+
+    Similar tracks come from Last.fm and BPM/key from GetSongBPM, using your own API keys
+    ('setsmith keys set'). Results link to Last.fm, SoundCloud and Beatport so you can
+    listen and add them; nothing is downloaded.
+    """
+    profile = _load_style_opt(style)
+    cfg = _scoring_config(learned, db)
+    col, _ = _load_analyzed(collection, db, use_analysis=True)
+    seed = _resolve_seed(col, track, track_id, as_json)
+    try:
+        with Store(db) as store:
+            lfm, bpm = make_sources(store, cfg)
+            with out.status("[dim]discovering...[/dim]") as spinner:
+                result = run_discovery(
+                    col, seed, lfm, bpm, style=profile, top=top, cfg=cfg,
+                    on_progress=None if as_json else lambda m: spinner.update(f"[dim]{m}...[/dim]"),
+                )  # fmt: skip
+    except DiscoveryUnavailable as exc:
+        err.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(EXIT_LOAD_ERROR) from exc
+    except (ServiceError, ValueError) as exc:
+        err.print(f"[red]Discovery failed:[/red] {exc}")
+        raise typer.Exit(EXIT_BUILD_ERROR) from exc
+
+    if as_json:
+        _emit_json(result.to_dict())
+        return
+    out.print(_seed_line(seed))
+    out.print(
+        f"[dim]Last.fm suggested {result.candidates} tracks (already in your library: "
+        f"{result.in_library}); {len(result.items)} shown.[/dim]"
+    )
+    for warning in result.warnings:
+        out.print(f"[yellow]note:[/yellow] {warning}", highlight=False)
+    table = Table(pad_edge=False)
+    for name, justify in (("#", "right"), ("Track", "left"), ("BPM", "right"), ("Key", "left"),
+                          ("Genre", "left"), ("Score", "right"), ("Transition", "left"),
+                          ("Found via", "left")):  # fmt: skip
+        table.add_column(name, justify=justify, overflow="fold")  # type: ignore[arg-type]
+    for i, d in enumerate(result.items, 1):
+        t = d.track
+        table.add_row(
+            str(i), f"{t.artist} - {t.title}", _bpm(t), _key(t), t.genre or "-",
+            _score_text(d.score.total),
+            f"{d.score.suggested_type.value} {d.score.suggested_length_bars}b", d.via,
+        )  # fmt: skip
+    out.print(table)
+    if result.items:
+        first = result.items[0]
+        out.print(f"[dim]Listen: {first.links['soundcloud']}  (all links in --json)[/dim]")
+    out.print(f"[dim]{_attribution_line()}[/dim]", highlight=False)
 
 
 # ---------------------------------------------------------------- feedback

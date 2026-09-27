@@ -24,6 +24,9 @@ from starlette.background import BackgroundTask
 
 from setsmith import __version__
 from setsmith.analysis.liveset import LiveSet, compute_stats
+from setsmith.discovery.discover import DiscoveryUnavailable, discover, make_sources
+from setsmith.discovery.http import ServiceError
+from setsmith.discovery.keys import get_key
 from setsmith.graph.build import config_key, track_fingerprint
 from setsmith.io.rekordbox_xml import ExportError, PlaylistSpec, export_playlists, load_collection
 from setsmith.library import enrich, learned_config
@@ -142,6 +145,10 @@ def create_app(
             "curves": list(DEFAULT_CONFIG.sets.curves),
             "styles": styles,
             "learned_available": learned_config(state.db) is not None,
+            "discovery": {
+                "lastfm": bool(get_key("lastfm")),
+                "getsongbpm": bool(get_key("getsongbpm")),
+            },
         }
 
     @app.get("/api/tracks")
@@ -203,6 +210,30 @@ def create_app(
                 for i, s in enumerate(results, 1)
             ],
         }
+
+    @app.get("/api/discover")
+    def discover_endpoint(
+        track_id: str,
+        top: int = Query(15, ge=1, le=50),
+        style: str | None = None,
+        learned: bool = False,
+    ) -> dict[str, Any]:
+        seed = state.collection.tracks.get(track_id)
+        if seed is None:
+            raise HTTPException(404, f"no track with TrackID {track_id!r}")
+        profile = _style(style)
+        cfg = _cfg(state, learned)
+        try:
+            with Store(state.db or default_db_path()) as store:
+                lfm, bpm = make_sources(store, cfg)
+                result = discover(state.collection, seed, lfm, bpm, style=profile, top=top, cfg=cfg)
+        except DiscoveryUnavailable as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ServiceError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        return result.to_dict()
 
     @app.post("/api/build")
     def build(body: BuildBody) -> dict[str, Any]:

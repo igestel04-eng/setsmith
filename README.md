@@ -281,9 +281,33 @@ The UI opens at <http://127.0.0.1:8765/> and has three tabs:
 
 - **Build a set** has the same options as `build`: length, curve, style, BPM range, opening track, genres and learned weights. It shows the set on a **timeline**. Tracks alternate between two deck lanes, colored by Camelot key. Each transition is a shaded overlap with its score between the lanes (hover for the type and length), and an energy strip on top plots the tracks' energy against the curve's targets. Click a track for its tags and the full reasoning for the transitions in and out, plus its alternates. **Export Rekordbox XML** downloads the set and alternates as a new file; **Report** opens the Markdown breakdown.
 - **Suggest next** searches as you type (any words from the artist or title), then ranks what to play next, with an optional style fit column and the reasoning behind each score.
+- **Discover** finds tracks you don't own that would mix well after a seed (see [`discover`](#discover-find-tracks-you-dont-own-yet)).
 - **Live sets** shows analyzed sets on the same timeline: where each track played in the recording, measured overlaps, cue points and the loudness curve.
 
 Safety: the server listens on 127.0.0.1 only by default. It reads your collection but never writes it. It only answers requests addressed to a local host name, which guards against DNS rebinding. It accepts style profiles by name only, never as a file path. Exports are built in a temporary folder and streamed to your browser as downloads. `--host` exposes the UI to your network with no login, and prints a warning (including the AGPL note when Essentia is installed). The API docs are at `/api/docs`.
+
+### `discover`: find tracks you don't own yet
+
+```bash
+uv run setsmith keys set lastfm YOUR_LASTFM_KEY           # required, free
+uv run setsmith keys set getsongbpm YOUR_GETSONGBPM_KEY   # optional, free: adds BPM and key
+uv run setsmith discover ~/Music/rekordbox.xml -t "Artist - Title" --style keinemusik
+```
+
+The web UI has the same feature in its **Discover** tab.
+
+For a seed track, Setsmith asks **Last.fm** for similar tracks and for popular tracks by similar artists, and drops anything already in your library. It then looks up BPM and key on **GetSongBPM** for the best matches (25 by default) and takes a genre from the artist's Last.fm tags. Each candidate is scored as a transition from your seed, with your style profile if you give one. Results link to the track on Last.fm and to searches on SoundCloud and Beatport, so you can listen and add or buy it. Nothing is downloaded.
+
+**Getting the keys (both free):**
+
+- **Last.fm:** sign in and create an API account at <https://www.last.fm/api/account/create>. You only need the "API key".
+- **GetSongBPM:** register at <https://getsongbpm.com/api>. Its terms require a visible link back to GetSongBPM; Setsmith shows one with every result.
+
+`setsmith keys set` saves keys to `~/.config/setsmith/keys.json`, readable only by you. The environment variables `SETSMITH_LASTFM_KEY` and `SETSMITH_GETSONGBPM_KEY` take precedence. `setsmith keys status` shows what is configured without printing the keys.
+
+Without a GetSongBPM key, results have no BPM or key and are scored mostly on genre. Known clashes still rank below unknowns: results are ordered by score, and known BPM and key only break ties.
+
+**Responsible use:** only official APIs are used, with your own keys and non-commercially, as Last.fm's terms require. Responses are cached in the Setsmith database for 7 days, with a size cap well under Last.fm's 100 MB limit. Requests are paced below both services' limits (GetSongBPM allows 3,000 an hour), so repeating a search is instant. Coverage depends on the services: brand-new or unreleased tracks may be missing from Last.fm or have no BPM or key on GetSongBPM. Beatport's API is partner-only, and SoundCloud's requires an Artist Pro subscription, so neither is used yet.
 
 ### `feedback`: log how transitions sounded on real decks
 
@@ -356,7 +380,7 @@ All of these numbers live in `SetConfig` and `CurveTemplate` in [`setsmith/scori
 
 ## Data Setsmith stores
 
-`analyze` (analysis results), `rekordbox import` (My Tags, history), `liveset` (analyzed sets), `learn` (learned weights), `build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Commands that only read (`suggest`, `info`) never create the file. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
+`analyze` (analysis results), `rekordbox import` (My Tags, history), `liveset` (analyzed sets), `learn` (learned weights), `discover` (7-day cache of API responses), `build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Commands that only read (`suggest`, `info`) never create the file. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
 
 ## Importing sets into Rekordbox
 

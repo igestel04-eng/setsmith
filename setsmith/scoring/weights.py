@@ -379,6 +379,24 @@ class LiveSetConfig(_Config):
     }  # fmt: skip
 
 
+class DiscoveryConfig(_Config):
+    """Finding new tracks through official APIs with the user's own keys."""
+
+    lastfm_base: str = "https://ws.audioscrobbler.com/2.0/"
+    getsongbpm_base: str = "https://api.getsong.co"
+    similar_tracks: int = 50  # Last.fm track.getSimilar results per seed
+    similar_artists: int = 10  # Last.fm artist.getSimilar results per seed
+    top_tracks_per_artist: int = 5
+    max_lookups: int = 25  # BPM/key lookups per discovery (best Last.fm matches first)
+    max_per_artist: int = 2  # keep results varied
+    # Polite pacing: GetSongBPM allows 3,000 requests an hour; Last.fm asks for restraint.
+    lastfm_min_interval_s: float = 0.25
+    getsongbpm_min_interval_s: float = 0.6
+    timeout_s: float = 15.0
+    cache_ttl_days: float = 7.0
+    cache_max_entries: int = 20000  # keeps the cache far below Last.fm's 100 MB storage cap
+
+
 class ScoringConfig(_Config):
     weights: ComponentWeights = ComponentWeights()
     tempo: TempoConfig = TempoConfig()
@@ -395,6 +413,7 @@ class ScoringConfig(_Config):
     vocal: VocalTagConfig = VocalTagConfig()
     rekordbox_db: RekordboxDbConfig = RekordboxDbConfig()
     liveset: LiveSetConfig = LiveSetConfig()
+    discovery: DiscoveryConfig = DiscoveryConfig()
 
 
 DEFAULT_CONFIG = ScoringConfig()

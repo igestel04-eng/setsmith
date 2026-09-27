@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import time
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
     from setsmith.analysis.audio import TrackAnalysis
     from setsmith.io.rekordbox_db import HistorySession, RekordboxDbData
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -58,6 +59,11 @@ CREATE TABLE IF NOT EXISTS livesets (
     created_at TEXT NOT NULL,
     data TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS http_cache (
+    key TEXT PRIMARY KEY,
+    fetched_at REAL NOT NULL,
+    body TEXT NOT NULL
+) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS feedback (
     id INTEGER PRIMARY KEY,
     created_at TEXT NOT NULL,
@@ -311,6 +317,32 @@ class Store:
     def load_learned(self) -> dict[str, Any] | None:
         row = self._conn.execute("SELECT value FROM meta WHERE key = 'learned'").fetchone()
         return dict(json.loads(row[0])) if row else None
+
+    # ------------------------------------------------------------ discovery HTTP cache
+
+    def cache_get(self, key: str, max_age_s: float) -> str | None:
+        row = self._conn.execute(
+            "SELECT fetched_at, body FROM http_cache WHERE key = ?", (key,)
+        ).fetchone()
+        if row is None or time.time() - float(row[0]) > max_age_s:
+            return None
+        return str(row[1])
+
+    def cache_put(self, key: str, body: str, max_entries: int | None = None) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO http_cache VALUES (?, ?, ?)", (key, time.time(), body)
+            )
+            if max_entries is not None:
+                self._conn.execute(
+                    """DELETE FROM http_cache WHERE key IN (
+                       SELECT key FROM http_cache ORDER BY fetched_at DESC LIMIT -1 OFFSET ?)""",
+                    (max_entries,),
+                )
+
+    def clear_http_cache(self) -> int:
+        with self._conn:
+            return self._conn.execute("DELETE FROM http_cache").rowcount
 
     # ------------------------------------------------------------ feedback
 
