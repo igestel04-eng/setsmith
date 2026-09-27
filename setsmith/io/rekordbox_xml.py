@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import copy
 import os
+from collections.abc import Generator
+from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -252,45 +254,51 @@ class ExportResult:
     track_count: int = 0
 
 
-def _iter_collection_tracks(path: Path) -> Any:
-    """Yield (TrackID, TRACK element) for each COLLECTION track. Elements are freed after use."""
+def _iter_collection_tracks(path: Path) -> Generator[tuple[str, Any], None, None]:
+    """Yield (TrackID, TRACK element) for each COLLECTION track. Elements are freed after use.
+
+    The file is opened here so that stopping early (closing the generator) closes it.
+    """
     in_collection = False
-    context = etree.iterparse(
-        str(path), events=("start", "end"), resolve_entities=False, no_network=True
-    )
-    for event, elem in context:
-        if event == "start":
-            if elem.tag == "COLLECTION":
-                in_collection = True
-            continue
-        if elem.tag == "TRACK" and in_collection:
-            yield _attr(elem, "TrackID"), elem
-            _release(elem)
-        elif elem.tag == "COLLECTION":
-            return
+    with path.open("rb") as handle:
+        context = etree.iterparse(
+            handle, events=("start", "end"), resolve_entities=False, no_network=True
+        )
+        for event, elem in context:
+            if event == "start":
+                if elem.tag == "COLLECTION":
+                    in_collection = True
+                continue
+            if elem.tag == "TRACK" and in_collection:
+                yield _attr(elem, "TrackID"), elem
+                _release(elem)
+            elif elem.tag == "COLLECTION":
+                return
 
 
 def _copy_tracks(path: Path, wanted: set[str]) -> dict[str, Any]:
     found: dict[str, Any] = {}
     if not wanted:
         return found
-    for track_id, elem in _iter_collection_tracks(path):
-        if track_id in wanted and track_id not in found:
-            found[track_id] = copy.deepcopy(elem)
-            if len(found) == len(wanted):
-                break
+    with closing(_iter_collection_tracks(path)) as tracks:
+        for track_id, elem in tracks:
+            if track_id in wanted and track_id not in found:
+                found[track_id] = copy.deepcopy(elem)
+                if len(found) == len(wanted):
+                    break
     return found
 
 
 def read_product_name(path: Path) -> str:
     """PRODUCT Name of a Rekordbox-style XML file, or "" if absent or unreadable."""
     try:
-        for _, elem in etree.iterparse(str(path), events=("end",), resolve_entities=False):
-            if elem.tag == "PRODUCT":
-                return _attr(elem, "Name")
-            if elem.tag in ("COLLECTION", "PLAYLISTS"):
-                break
-    except etree.XMLSyntaxError:
+        with path.open("rb") as handle:
+            for _, elem in etree.iterparse(handle, events=("end",), resolve_entities=False):
+                if elem.tag == "PRODUCT":
+                    return _attr(elem, "Name")
+                if elem.tag in ("COLLECTION", "PLAYLISTS"):
+                    break
+    except (etree.XMLSyntaxError, OSError):
         pass
     return ""
 

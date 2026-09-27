@@ -263,7 +263,7 @@ def _energy(a: Track, b: Track, target: float, cfg: ScoringConfig) -> _EnergyPar
         return _EnergyPart(cfg.energy.missing_score, "energy unknown", [Flag.MISSING_ENERGY])
     delta = b.energy - a.energy
     score = energy_score(a, b, target, cfg)
-    reason = f"E{a.energy:g} -> E{b.energy:g} ({delta:+g}, target {target:+g})"
+    reason = f"E{a.energy:g} -> E{b.energy:g} ({round(delta, 1):+g}, target {round(target, 1):+g})"
     return _EnergyPart(score, reason, [], delta)
 
 

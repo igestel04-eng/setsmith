@@ -5,7 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from setsmith.model.track import Track
-from setsmith.sets.generate import GeneratedSet, SetPosition
+from setsmith.scoring.weights import DEFAULT_CONFIG, ScoringConfig
+from setsmith.sets.generate import GeneratedSet, SetPosition, bars_to_seconds
 
 
 def _energy(t: Track) -> str:
@@ -140,4 +141,27 @@ def set_comments(gen: GeneratedSet, name: str) -> dict[str, str]:
             note += f" -> {p.transition.total:.0f} {_transition_cell(p)}"
         note += "]"
         out[p.track.id] = f"{note} {p.track.comments}".strip()
+    return out
+
+
+def set_timeline(gen: GeneratedSet, cfg: ScoringConfig = DEFAULT_CONFIG) -> list[dict[str, Any]]:
+    """Where each track sits in the set, in seconds: it starts as the previous one's
+    suggested transition begins, and plays its full length."""
+    out: list[dict[str, Any]] = []
+    t = 0.0
+    for p in gen.positions:
+        duration = p.track.duration_s or cfg.sets.default_track_seconds
+        overlap = 0.0
+        if p.transition and p.track.bpm:
+            overlap = bars_to_seconds(p.transition.suggested_length_bars, p.track.bpm, cfg)
+            overlap = min(overlap, duration / 2)
+        out.append(
+            {
+                "position": p.index + 1,
+                "start_s": round(t, 1),
+                "end_s": round(t + duration, 1),
+                "overlap_next_s": round(overlap, 1),
+            }
+        )
+        t += duration - overlap
     return out

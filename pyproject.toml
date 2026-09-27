@@ -1,6 +1,6 @@
 [project]
 name = "setsmith"
-version = "0.5.0"
+version = "0.6.0"
 description = "Transition-aware DJ set builder for Rekordbox"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,8 @@ essentia = [
 ]
 # Read-only access to a copy of Rekordbox's master.db (My Tags, play history).
 rekordbox = ["pyrekordbox>=0.4.4"]
+# Local web UI (Phase 6).
+web = ["fastapi>=0.115", "uvicorn>=0.30"]
 
 [project.scripts]
 setsmith = "setsmith.cli:app"
@@ -36,6 +38,7 @@ dev = [
     "hypothesis>=6.100",
     "ruff>=0.6",
     "mypy>=1.11",
+    "httpx>=0.27",  # FastAPI's test client
 ]
 
 [build-system]
@@ -47,6 +50,7 @@ include = ["setsmith*"]
 
 [tool.setuptools.package-data]
 "setsmith.styles" = ["profiles/*.json"]
+"setsmith.web" = ["static/*"]
 
 [tool.ruff]
 line-length = 100

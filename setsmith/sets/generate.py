@@ -204,12 +204,12 @@ def estimate_track_count(
     durations = [t.duration_s or sc.default_track_seconds for t in pool]
     bpms = [t.bpm for t in pool if t.bpm]
     median_len = statistics.median(durations) if durations else sc.default_track_seconds
-    overlap = _bars_to_seconds(blend_bars, statistics.median(bpms), cfg) if bpms else 0.0
+    overlap = bars_to_seconds(blend_bars, statistics.median(bpms), cfg) if bpms else 0.0
     per_track = max(median_len - overlap, overlap, 1.0)
     return max(2, round(minutes * sc.seconds_per_minute / per_track))
 
 
-def _bars_to_seconds(bars: int, bpm: float, cfg: ScoringConfig) -> float:
+def bars_to_seconds(bars: int, bpm: float, cfg: ScoringConfig) -> float:
     return bars * cfg.sets.beats_per_bar * cfg.sets.seconds_per_minute / bpm
 
 
@@ -544,7 +544,7 @@ def _stats(
     for p in positions:
         seconds += p.track.duration_s or cfg.sets.default_track_seconds
         if p.transition and p.track.bpm:
-            seconds -= _bars_to_seconds(p.transition.suggested_length_bars, p.track.bpm, cfg)
+            seconds -= bars_to_seconds(p.transition.suggested_length_bars, p.track.bpm, cfg)
     misses = [
         abs(p.track.energy - p.target_energy) for p in positions if p.track.energy is not None
     ]

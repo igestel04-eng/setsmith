@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -28,8 +27,6 @@ from setsmith.analysis.audio import (
     location_to_path,
 )
 from setsmith.analysis.learn import (
-    LearnedPreferences,
-    blended_config,
     history_pairs,
     learn,
     move_table,
@@ -38,7 +35,6 @@ from setsmith.analysis.learn import (
 from setsmith.analysis.liveset import LiveSet, analyze_liveset, compute_stats, draft_profile
 from setsmith.analysis.tracklist import load_tracklist, match_tracklist
 from setsmith.graph.build import config_key, track_fingerprint
-from setsmith.io.enrich import MyTagCoverage, apply_my_tags
 from setsmith.io.rekordbox_db import (
     KEY_ENV,
     RekordboxDbError,
@@ -56,6 +52,7 @@ from setsmith.io.rekordbox_xml import (
     load_collection,
 )
 from setsmith.keys.camelot import classify_move, parse_key
+from setsmith.library import Enrichment, enrich, learned_config
 from setsmith.model.collection import Collection, NodeType
 from setsmith.model.track import Track
 from setsmith.scoring.suggest import Suggestion, suggest_next
@@ -157,45 +154,24 @@ def _load(path: Path) -> Collection:
         raise typer.Exit(EXIT_LOAD_ERROR) from exc
 
 
-@dataclass(slots=True)
-class Enrichment:
-    analysis: AnalysisCoverage | None = None
-    my_tags: MyTagCoverage | None = None
-    rekordbox: dict[str, Any] | None = None  # last master.db import
-
-
 def _load_analyzed(
     path: Path, db: Path | None, use_analysis: bool
 ) -> tuple[Collection, Enrichment]:
     """Load a collection and apply stored audio analysis and imported My Tags, if any."""
     col = _load(path)
-    info = Enrichment()
-    db_path = db or default_db_path()
-    if not db_path.exists():  # never create a database just to read from it
-        return col, info
-    with Store(db_path) as store:
-        if use_analysis:
-            info.analysis = load_and_apply(col, store)
-        info.rekordbox = store.rekordbox_import_info()
-        if info.rekordbox:
-            info.my_tags = apply_my_tags(col, store.load_my_tags())
-    return col, info
+    return col, enrich(col, db, use_analysis)
 
 
 def _scoring_config(use_learned: bool, db: Path | None) -> ScoringConfig:
     """Default weights, or weights blended with learned preferences when asked."""
     if not use_learned:
         return DEFAULT_CONFIG
-    db_path = db or default_db_path()
-    data = None
-    if db_path.exists():
-        with Store(db_path) as store:
-            data = store.load_learned()
-    if data is None:
+    cfg = learned_config(db)
+    if cfg is None:
         raise typer.BadParameter(
             "nothing learned yet; run 'setsmith learn <xml>' first", param_hint="--learned"
         )
-    return blended_config(LearnedPreferences.from_dict(data))
+    return cfg
 
 
 def _load_style_opt(name: str | None) -> StyleProfile | None:
@@ -1620,6 +1596,55 @@ def learn_command(
             table.add_row(label, str(played), f"{default:.2f}", f"{new:.2f}")
         out.print(table)
     out.print("[dim]Use with: setsmith suggest ... --learned / setsmith build ... --learned[/dim]")
+
+
+# ---------------------------------------------------------------- web UI
+
+
+@app.command()
+def web(
+    collection: CollectionArg,
+    host: Annotated[str, typer.Option(help="Address to listen on.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(min=1, max=65535, help="Port to listen on.")] = 8765,
+    open_browser: Annotated[
+        bool, typer.Option("--open/--no-open", help="Open the UI in your browser.")
+    ] = False,
+    db: DbOpt = None,
+) -> None:
+    """Start the local web UI: build sets on a timeline, suggestions, analyzed live sets.
+
+    Listens on 127.0.0.1 only by default; your collection is read, never written.
+    """
+    if not has_module("fastapi") or not has_module("uvicorn"):
+        err.print("[red]The web UI needs the web extra:[/red] uv sync --extra web")
+        raise typer.Exit(EXIT_LOAD_ERROR)
+    import uvicorn
+
+    from setsmith.web.app import LOCAL_HOSTS, create_app
+
+    local = host in LOCAL_HOSTS
+    if not local:
+        err.print(
+            f"[yellow]Listening on {host} makes your library browsable by other machines on "
+            "the network. Setsmith has no login.[/yellow]"
+        )
+        if has_module("essentia"):
+            err.print(
+                "[yellow]Essentia is installed and is AGPL-3.0: serving this app to other "
+                "people brings AGPL obligations.[/yellow]"
+            )
+    try:
+        application = create_app(collection, db, extra_hosts=None if local else [host])
+    except (RekordboxXMLError, OSError) as exc:
+        err.print(f"[red]Could not read {collection}:[/red] {exc}")
+        raise typer.Exit(EXIT_LOAD_ERROR) from exc
+    url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/"
+    out.print(f"Setsmith UI at [bold]{url}[/bold]  [dim](Ctrl-C to stop)[/dim]")
+    if open_browser:
+        import webbrowser
+
+        webbrowser.open(url)
+    uvicorn.run(application, host=host, port=port, log_level="warning")
 
 
 # ---------------------------------------------------------------- feedback

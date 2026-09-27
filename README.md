@@ -4,7 +4,7 @@ Setsmith is a transition-aware DJ set builder for Rekordbox. It reads your Rekor
 
 Setsmith only reads your data. It never modifies your Rekordbox database or your audio files.
 
-**Status: Phase 5 (suggestions, set building, Rekordbox export, listening feedback, local audio analysis, DJ style profiles, live-set analysis, learned preferences).** A local web UI is the optional Phase 6.
+**Status: all six phases (suggestions, set building, Rekordbox export, listening feedback, local audio analysis, DJ style profiles, live-set analysis, learned preferences, local web UI).**
 
 ## Setup
 
@@ -270,6 +270,21 @@ uv run setsmith build ~/Music/rekordbox.xml --minutes 90 --learned
 
 `learn` counts how often you make each Camelot move and each size of tempo change. It uses consecutive tracks in your Rekordbox history sessions (after `setsmith rekordbox import`) and transitions in analyzed live sets. It then shows defaults next to learned values. A learned value is a move's frequency relative to your most frequent move, blended with the default using weight n / (n + prior). The default prior is 50, so 10 transitions shift the scores a little and 500 mostly replace them. `--prior` changes that. The learned weights apply only when you pass `--learned`, and the pair-score cache keeps them separate from the defaults.
 
+### `web`: a local web UI
+
+```bash
+uv sync --extra web               # plus your other extras
+uv run setsmith web ~/Music/rekordbox.xml --open
+```
+
+The UI opens at <http://127.0.0.1:8765/> and has three tabs:
+
+- **Build a set** has the same options as `build`: length, curve, style, BPM range, opening track, genres and learned weights. It shows the set on a **timeline**. Tracks alternate between two deck lanes, colored by Camelot key. Each transition is a shaded overlap with its score between the lanes (hover for the type and length), and an energy strip on top plots the tracks' energy against the curve's targets. Click a track for its tags and the full reasoning for the transitions in and out, plus its alternates. **Export Rekordbox XML** downloads the set and alternates as a new file; **Report** opens the Markdown breakdown.
+- **Suggest next** searches as you type (any words from the artist or title), then ranks what to play next, with an optional style fit column and the reasoning behind each score.
+- **Live sets** shows analyzed sets on the same timeline: where each track played in the recording, measured overlaps, cue points and the loudness curve.
+
+Safety: the server listens on 127.0.0.1 only by default. It reads your collection but never writes it. It only answers requests addressed to a local host name, which guards against DNS rebinding. It accepts style profiles by name only, never as a file path. Exports are built in a temporary folder and streamed to your browser as downloads. `--host` exposes the UI to your network with no login, and prints a warning (including the AGPL note when Essentia is installed). The API docs are at `/api/docs`.
+
 ### `feedback`: log how transitions sounded on real decks
 
 ```bash
@@ -356,7 +371,7 @@ The exported file copies every track entry exactly as it appears in your export:
 ## Development
 
 ```bash
-uv sync --extra audio --extra essentia --extra rekordbox   # those tests skip without these
+uv sync --extra audio --extra essentia --extra rekordbox --extra web   # those tests skip without these
 uv run pytest                  # all tests, including performance and audio tests
 uv run pytest -m "not perf and not audio"   # fast core tests
 uv run ruff check . && uv run ruff format --check .
