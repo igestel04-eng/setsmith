@@ -4,6 +4,8 @@ Setsmith is a transition-aware DJ set builder for Rekordbox. It reads your Rekor
 
 Setsmith only reads your data. It never modifies your Rekordbox database or your audio files.
 
+Track discovery uses data from [Last.fm](https://www.last.fm) and BPM and key data from [GetSongBPM](https://getsongbpm.com).
+
 **Status: all six phases (suggestions, set building, Rekordbox export, listening feedback, local audio analysis, DJ style profiles, live-set analysis, learned preferences, local web UI).**
 
 ## Setup
@@ -412,3 +414,7 @@ Test fixtures use made-up artists and titles. Audio tests analyze tracks synthes
 - Only derived features are stored. Audio and full tracklists are never redistributed. Audio files are opened read-only and never copied.
 - Style profiles describe musical parameters in our own words. They are labeled "inspired by" and do not imply endorsement by any artist.
 - Rekordbox's own database is only ever read by copying it, behind `--backed-up`, with a key you supply.
+
+## License
+
+MIT; see [LICENSE](LICENSE). The optional Essentia extra is AGPL-3.0, and the optional madmom/allin1 models carry their own non-commercial licenses (see above).
