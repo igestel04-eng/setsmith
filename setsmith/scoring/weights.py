@@ -389,6 +389,9 @@ class DiscoveryConfig(_Config):
     top_tracks_per_artist: int = 5
     max_lookups: int = 25  # BPM/key lookups per discovery (best Last.fm matches first)
     max_per_artist: int = 2  # keep results varied
+    # Results with known BPM and key at or above this score rank first; unknowns follow
+    # (by Last.fm similarity); known poor matches come last.
+    good_match_score: float = 60.0
     # Polite pacing: GetSongBPM allows 3,000 requests an hour; Last.fm asks for restraint.
     lastfm_min_interval_s: float = 0.25
     getsongbpm_min_interval_s: float = 0.6

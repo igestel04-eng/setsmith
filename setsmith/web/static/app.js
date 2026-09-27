@@ -447,7 +447,9 @@ function initDiscover() {
           setChildren($("#discover-detail"), 
             el("h3", {}, `${r.artist} - ${r.title}`),
             el("p", { class: "muted" }, `Found as ${r.via} (Last.fm match ${fmt(r.lastfm_match, 2)})`),
-            el("pre", {}, r.explain.join("\n")),
+            r.bpm_key_known
+              ? el("pre", {}, r.explain.join("\n"))
+              : el("p", {}, "No BPM or key data yet, so Setsmith can't judge the mix. Listen via the links; once it's in Rekordbox, Suggest and Build will score it properly."),
             r.style_fit ? el("p", { class: "muted" }, `Style fit ${fmt(r.style_fit.score, 2)}`) : null);
         },
       },
@@ -456,9 +458,11 @@ function initDiscover() {
         el("td", { class: "num" }, fmt(r.bpm, 1)),
         el("td", {}, r.key ? keyChip(r.key) : "-"),
         el("td", {}, r.genre || "-"),
-        scoreCell(r.score.total),
+        r.bpm_key_known
+          ? scoreCell(r.score.total)
+          : el("td", { class: "num muted", title: "BPM/key unknown: ranked by Last.fm similarity" }, "?"),
         styled ? el("td", { class: "num" }, r.style_fit ? Math.round(100 * r.style_fit.score) : "-") : null,
-        el("td", {}, `${r.score.suggested_type.replace("_", " ")} ${r.score.suggested_length_bars}b`),
+        el("td", {}, r.bpm_key_known ? `${r.score.suggested_type.replace("_", " ")} ${r.score.suggested_length_bars}b` : "-"),
         el("td", { class: "links" },
           [safeLink(r.links.soundcloud, "SoundCloud"), safeLink(r.links.beatport, "Beatport"), safeLink(r.links.lastfm, "Last.fm")]
             .filter(Boolean).flatMap((a, j) => (j ? [" · ", a] : [a]))),

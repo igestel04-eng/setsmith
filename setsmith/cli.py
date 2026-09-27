@@ -1761,11 +1761,13 @@ def discover(
     db: DbOpt = None,
     as_json: JsonOpt = False,
 ) -> None:
-    """Find tracks you don't own that would mix well after a seed track.
+    """Find candidate tracks you don't own to play after a seed track.
 
     Similar tracks come from Last.fm and BPM/key from GetSongBPM, using your own API keys
-    ('setsmith keys set'). Results link to Last.fm, SoundCloud and Beatport so you can
-    listen and add them; nothing is downloaded.
+    ('setsmith keys set'). Good matches with known BPM and key come first, then tracks
+    with unknown BPM/key ('?', by Last.fm similarity), then known poor matches. Results
+    link to Last.fm, SoundCloud and Beatport so you can listen and add them; nothing is
+    downloaded.
     """
     profile = _load_style_opt(style)
     cfg = _scoring_config(learned, db)
@@ -1803,12 +1805,20 @@ def discover(
         table.add_column(name, justify=justify, overflow="fold")  # type: ignore[arg-type]
     for i, d in enumerate(result.items, 1):
         t = d.track
+        known = d.has_tempo_and_key
         table.add_row(
-            str(i), f"{t.artist} - {t.title}", _bpm(t), _key(t), t.genre or "-",
-            _score_text(d.score.total),
-            f"{d.score.suggested_type.value} {d.score.suggested_length_bars}b", d.via,
-        )  # fmt: skip
+            str(i),
+            f"{t.artist} - {t.title}",
+            _bpm(t),
+            _key(t),
+            t.genre or "-",
+            _score_text(d.score.total) if known else Text("?", style="dim"),
+            f"{d.score.suggested_type.value} {d.score.suggested_length_bars}b" if known else "-",
+            d.via,
+        )
     out.print(table)
+    if any(not d.has_tempo_and_key for d in result.items):
+        out.print("[dim]? = BPM/key unknown: ranked by Last.fm similarity, not scored.[/dim]")
     if result.items:
         first = result.items[0]
         out.print(f"[dim]Listen: {first.links['soundcloud']}  (all links in --json)[/dim]")

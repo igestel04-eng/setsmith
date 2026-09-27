@@ -26,6 +26,7 @@ from setsmith.discovery.http import JsonClient, ServiceError
 from setsmith.discovery.lastfm import LastFm
 from setsmith.model.collection import Collection
 from setsmith.model.track import Track
+from setsmith.scoring.weights import DEFAULT_CONFIG
 from setsmith.store import Store
 from setsmith.styles.profile import load_style
 
@@ -152,9 +153,34 @@ def test_discover_ranks_new_tracks(collection_5: Collection) -> None:
     assert result.items[1].track.bpm is None  # no reliable BPM match
     assert (result.candidates, result.in_library) == (4, 1)
     assert result.looked_up == 3 and result.without_tempo_key == 2
-    assert not result.warnings  # "no result" is not an error
+    # "no result" is not an error, but unknown BPM/key is called out
+    assert len(result.warnings) == 1 and "2 of 3 results have no BPM/key data" in result.warnings[0]
     data = result.to_dict()
     assert {a["text"] for a in data["attribution"]} >= {"BPM and key data from GetSongBPM"}
+    known = [(i["bpm_key_known"], i["rank_basis"]) for i in data["results"]]
+    assert known == [
+        (False, "Last.fm similarity"),
+        (False, "Last.fm similarity"),
+        (True, "transition score"),
+    ]
+
+
+def test_discover_known_good_match_ranks_first(collection_5: Collection) -> None:
+    # Velvet Drift is the least similar on Last.fm, but once GetSongBPM knows it mixes
+    # well with the seed (same BPM and key) it outranks the unscored candidates.
+    lfm, _, _, _ = sources()
+    responses = dict(GETSONGBPM)
+    responses["search/:velvet drift"] = {
+        "search": [{"id": "V2", "title": "Velvet Drift", "artist": {"name": "Tomas Lind"},
+                    "tempo": "122", "key_of": "Am"}]
+    }  # fmt: skip
+    bpm = GetSongBpm(FakeClient(responses), "BPMKEY")  # type: ignore[arg-type]
+    seed = collection_5.tracks["101"]
+    result = discover(collection_5, seed, lfm, bpm, top=10)
+    titles = [d.track.title for d in result.items]
+    assert titles == ["Velvet Drift", "Glass Harbour", "Night Tide"]
+    assert result.items[0].score.total >= DEFAULT_CONFIG.discovery.good_match_score
+    assert "1 of 3 results have no BPM/key data" in result.warnings[0]
 
 
 def test_discover_with_style(collection_5: Collection) -> None:

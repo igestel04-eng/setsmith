@@ -1,4 +1,4 @@
-"""Find tracks outside the collection that would mix well after a seed track.
+"""Find candidate tracks outside the collection to play after a seed track.
 
 1. Last.fm: tracks similar to the seed, plus top tracks of artists similar to the seed's
    artist. Anything already in the collection is dropped.
@@ -53,6 +53,10 @@ class Discovery:
     def has_tempo_and_key(self) -> bool:
         return bool(self.track.bpm and self.track.camelot)
 
+    @property
+    def rank_basis(self) -> str:
+        return "transition score" if self.has_tempo_and_key else "Last.fm similarity"
+
     def to_dict(self) -> dict[str, Any]:
         t = self.track
         return {
@@ -63,6 +67,8 @@ class Discovery:
             "genre": t.genre,
             "via": self.via,
             "lastfm_match": round(self.match, 3),
+            "bpm_key_known": self.has_tempo_and_key,
+            "rank_basis": self.rank_basis,
             "links": self.links,
             "score": self.score.to_dict(),
             "explain": self.score.explain(),
@@ -385,9 +391,18 @@ def discover(
         result.warnings.append(
             "no GetSongBPM key: results have no BPM or key, so scores lean on genre only"
         )
+
     # Best transitions first; known tempo/key only breaks ties (a known clash must not
     # outrank an unknown), then Last.fm's similarity.
-    discoveries.sort(key=lambda d: (-round(d.score.total, 1), -d.has_tempo_and_key, -d.match))
+    # A candidate finder first: known good matches by score, then unknowns by Last.fm
+    # similarity (no BPM/key means the score would be a guess), then known poor matches.
+    def rank(d: Discovery) -> tuple[int, float]:
+        if not d.has_tempo_and_key:
+            return 1, -d.match
+        tier = 0 if d.score.total >= dc.good_match_score else 2
+        return tier, -d.score.total
+
+    discoveries.sort(key=rank)
     per_artist: dict[str, int] = {}
     varied = []
     for d in discoveries:
@@ -396,4 +411,10 @@ def discover(
             per_artist[who] = per_artist.get(who, 0) + 1
             varied.append(d)
     result.items = varied[:top]
+    unknown = sum(1 for d in result.items if not d.has_tempo_and_key)
+    if unknown:
+        result.warnings.append(
+            f"{unknown} of {len(result.items)} results have no BPM/key data, so they are ranked "
+            "by Last.fm similarity; add them to Rekordbox to have them scored properly"
+        )
     return result
