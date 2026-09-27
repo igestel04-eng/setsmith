@@ -1671,9 +1671,14 @@ class Service(StrEnum):
 @keys_app.command("set")
 def keys_set(
     service: Annotated[Service, typer.Argument(help="lastfm or getsongbpm")],
-    key: Annotated[str, typer.Argument(help="Your API key for that service.")],
+    key: Annotated[
+        str | None,
+        typer.Argument(help="Your API key. Leave it out to paste it at a hidden prompt."),
+    ] = None,
 ) -> None:
     """Save an API key (an environment variable with the same purpose takes precedence)."""
+    if key is None:
+        key = typer.prompt(f"Paste your {service.value} API key (hidden)", hide_input=True)
     value = key.strip()
     if "PASTE" in value.upper() or "YOUR_" in value.upper():
         raise typer.BadParameter(

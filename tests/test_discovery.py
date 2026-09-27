@@ -295,6 +295,9 @@ def test_cli_keys(isolated_keys: Path) -> None:
     assert status == {"lastfm": "file", "getsongbpm": None}
     assert "abc" not in runner.invoke(cli.app, ["keys", "status"]).output  # never printed
     assert runner.invoke(cli.app, ["keys", "set", "spotify", "x"]).exit_code == 2
+    prompted = runner.invoke(cli.app, ["keys", "set", "getsongbpm"], input="hiddenkey42\n")
+    assert prompted.exit_code == 0 and "hiddenkey42" not in prompted.output
+    assert keys.get_key("getsongbpm") == "hiddenkey42"
     placeholder = runner.invoke(cli.app, ["keys", "set", "lastfm", "PASTE_YOUR_API_KEY"])
     assert placeholder.exit_code == 2 and "placeholder" in placeholder.output
     odd = runner.invoke(cli.app, ["keys", "set", "lastfm", "not-a-hex-key"])
