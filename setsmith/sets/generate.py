@@ -19,14 +19,18 @@ import statistics
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from setsmith.graph.build import CompatibilityGraph, PairKey, PairScore
+from setsmith.io.enrich import tag_names
 from setsmith.model.collection import Collection, normalize_text
 from setsmith.model.track import Track
 from setsmith.scoring.transition import TransitionScore, energy_score, score_transition
 from setsmith.scoring.weights import DEFAULT_CONFIG, ScoringConfig, band_score
 from setsmith.sets.curves import EnergyCurve
+
+if TYPE_CHECKING:
+    from setsmith.styles.profile import StyleProfile
 
 # Collaboration separators. "and"/"with" are left out: they occur inside names.
 _ARTIST_SPLIT_RE = re.compile(r"\s*(?:,|&|\s(?:x|feat\.?|ft\.?|vs\.?)\s)\s*")
@@ -52,6 +56,17 @@ class SetRequest:
     artist_gap: int | None = None  # None = config default
     max_tempo_drift_bpm: float | None = None  # None = config default
     beam_width: int | None = None  # None = config default
+    style: StyleProfile | None = None  # BPM band, drift, key/genre weights, style fit
+    tags: frozenset[str] = frozenset()  # lowercased My Tag names; empty = any
+
+    @property
+    def bpm_range(self) -> tuple[float | None, float | None]:
+        """Explicit limits win; otherwise the style's BPM band is a hard limit."""
+        band = self.style.bpm_band if self.style else (None, None)
+        return (
+            self.bpm_min if self.bpm_min is not None else band[0],
+            self.bpm_max if self.bpm_max is not None else band[1],
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,9 +98,19 @@ class SetStats:
     pool_size: int
     pairs_scored: int
     pairs_from_cache: int
+    style: str | None = None
+    mean_style_fit: float | None = None
+    transition_mix: dict[str, float] = field(default_factory=dict)  # share per type
+    style_transition_mix: dict[str, float] = field(default_factory=dict)  # the style's target
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "style": self.style,
+            "mean_style_fit": None
+            if self.mean_style_fit is None
+            else round(self.mean_style_fit, 2),
+            "transition_mix": {k: round(v, 2) for k, v in self.transition_mix.items()},
+            "style_transition_mix": self.style_transition_mix,
             "track_count": self.track_count,
             "estimated_minutes": round(self.estimated_seconds / 60, 1),
             "mean_transition": round(self.mean_transition, 1),
@@ -135,17 +160,20 @@ def filter_pool(
     """Tracks eligible for the set, plus warnings about what was left out and why."""
     pool: list[Track] = []
     no_bpm = 0
+    bpm_min, bpm_max = request.bpm_range
     for t in collection.tracks.values():
         if t.id in request.exclude_ids:
             continue
         if not t.bpm:
             no_bpm += 1
             continue
-        if request.bpm_min is not None and t.bpm < request.bpm_min:
+        if bpm_min is not None and t.bpm < bpm_min:
             continue
-        if request.bpm_max is not None and t.bpm > request.bpm_max:
+        if bpm_max is not None and t.bpm > bpm_max:
             continue
         if request.genres and not (cfg.genre.normalize(t.genre) & request.genres):
+            continue
+        if request.tags and not (tag_names(t) & request.tags):
             continue
         pool.append(t)
 
@@ -164,17 +192,19 @@ def filter_pool(
     return pool, warnings
 
 
-def estimate_track_count(pool: list[Track], minutes: float, cfg: ScoringConfig) -> int:
+def estimate_track_count(
+    pool: list[Track], minutes: float, cfg: ScoringConfig, style: StyleProfile | None = None
+) -> int:
     """Tracks needed for `minutes`: median length minus a long-blend overlap per track."""
     sc = cfg.sets
+    long_style = style is not None and style.prefers_long_blends(cfg)
+    blend_bars = (
+        cfg.transition.long_blend_style_bars if long_style else cfg.transition.long_blend_bars
+    )
     durations = [t.duration_s or sc.default_track_seconds for t in pool]
     bpms = [t.bpm for t in pool if t.bpm]
     median_len = statistics.median(durations) if durations else sc.default_track_seconds
-    overlap = (
-        _bars_to_seconds(cfg.transition.long_blend_bars, statistics.median(bpms), cfg)
-        if bpms
-        else 0.0
-    )
+    overlap = _bars_to_seconds(blend_bars, statistics.median(bpms), cfg) if bpms else 0.0
     per_track = max(median_len - overlap, overlap, 1.0)
     return max(2, round(minutes * sc.seconds_per_minute / per_track))
 
@@ -211,12 +241,16 @@ class _Search:
         self.cfg = cfg
         self.width = request.beam_width or sc.beam_width
         self.artist_gap = sc.artist_gap_tracks if request.artist_gap is None else request.artist_gap
-        self.max_drift = (
-            sc.max_tempo_drift_bpm
-            if request.max_tempo_drift_bpm is None
-            else request.max_tempo_drift_bpm
-        )
+        self.style = request.style
+        if request.max_tempo_drift_bpm is not None:
+            self.max_drift = request.max_tempo_drift_bpm
+        elif self.style is not None:
+            self.max_drift = self.style.max_tempo_drift_bpm
+        else:
+            self.max_drift = sc.max_tempo_drift_bpm
         self.energy_weight_pts = 100 * cfg.weights.energy
+        self.style_max_pts = sc.style_fit_points if self.style else 0.0
+        self._style_pts: dict[str, float] = {}
         # Duplicate collection entries of one song share a key, so a set never repeats it.
         self.song = {
             tid: (normalize_text(t.artist), normalize_text(t.title)) if t.title else (tid, "")
@@ -243,6 +277,16 @@ class _Search:
             return self.targets[i] - a.energy
         return self.targets[i] - self.targets[i - 1]
 
+    def style_pts(self, t: Track) -> float:
+        """Style fit x style_fit_points (0 without a style)."""
+        if self.style is None:
+            return 0.0
+        pts = self._style_pts.get(t.id)
+        if pts is None:
+            pts = self.cfg.sets.style_fit_points * self.style.style_fit(t, self.cfg).score
+            self._style_pts[t.id] = pts
+        return pts
+
     def energy_pts(self, a: Track, b: Track, i: int) -> float:
         return self.energy_weight_pts * energy_score(a, b, self.target_delta(a, i), self.cfg)
 
@@ -252,12 +296,13 @@ class _Search:
             fit = e.missing_score
         else:
             fit = band_score(abs(t.energy - self.targets[0]), e.bands, e.beyond_score)
-        return self.energy_weight_pts * fit
+        return self.energy_weight_pts * fit + self.style_pts(t)
 
     def step(self, a_id: str, b_id: str, i: int) -> float:
-        """Path-independent step points (base + energy), used for alternates."""
+        """Path-independent step points (base + energy + style), used for alternates."""
         base, _ = self.g.pair(a_id, b_id)
-        return base + self.energy_pts(self.t[a_id], self.t[b_id], i)
+        b = self.t[b_id]
+        return base + self.energy_pts(self.t[a_id], b, i) + self.style_pts(b)
 
     def shares_artist(self, b: Track, others: Iterable[str]) -> bool:
         names = artist_names(b.artist)
@@ -297,9 +342,13 @@ class _Search:
         if start_id is not None:
             starts = [self.t[start_id]]
         else:
-            ranked = sorted(
-                self.t.values(), key=lambda t: (-self.start_pts(t), -t.rating, t.display, t.id)
-            )
+            preferred = self.style.bpm_preferred if self.style else None
+
+            def rank(t: Track) -> tuple[float, float, int, str, str]:
+                off_tempo = abs((t.bpm or 0.0) - preferred) if preferred else 0.0
+                return (-self.start_pts(t), off_tempo, -t.rating, t.display, t.id)
+
+            ranked = sorted(self.t.values(), key=rank)
             starts = ranked[: self.width]
         states = []
         for track in starts:
@@ -315,13 +364,11 @@ class _Search:
         blocked = state.path[-self.artist_gap :] if self.artist_gap > 0 else ()
         best: list[tuple[float, int, _State]] = []
         for n, (b_id, ceiling) in enumerate(self.g.candidates(a_id)):
-            # Candidates come sorted by a ceiling on base; energy adds at most
-            # energy_weight_pts and penalties only subtract, so once the ceiling loses,
-            # every later candidate does too.
-            if (
-                len(best) >= self.width
-                and state.score + ceiling + self.energy_weight_pts <= (best[0][0])
-            ):
+            # Candidates come sorted by a ceiling on base; energy and style add at most
+            # their maximum points and penalties only subtract, so once the ceiling
+            # loses, every later candidate does too.
+            bound = state.score + ceiling + self.energy_weight_pts + self.style_max_pts
+            if len(best) >= self.width and bound <= best[0][0]:
                 break
             if self.song[b_id] in used:
                 continue
@@ -330,7 +377,7 @@ class _Search:
                 continue
             base, boost = self.g.pair(a_id, b_id)
             penalty, lo, hi = self.penalties(state, b, i, boost)
-            score = state.score + base + self.energy_pts(a, b, i) - penalty
+            score = state.score + base + self.energy_pts(a, b, i) + self.style_pts(b) - penalty
             new = _State((*state.path, b_id), score, (*state.boosts, boost), state.ref_bpm, lo, hi)
             if len(best) < self.width:
                 heapq.heappush(best, (score, n, new))
@@ -371,14 +418,14 @@ def generate_set(
     if request.track_count is not None:
         n = request.track_count
     elif request.minutes is not None:
-        n = estimate_track_count(pool, request.minutes, cfg)
+        n = estimate_track_count(pool, request.minutes, cfg, request.style)
     else:
         raise SetGenerationError("give a set length in minutes or a track count")
     if n > len(pool):
         warnings.append(f"asked for {n} tracks but only {len(pool)} match; using all of them")
         n = len(pool)
 
-    graph = CompatibilityGraph(pool, cfg, cache)
+    graph = CompatibilityGraph(pool, cfg, cache, request.style)
     targets = request.curve.targets(n)
     search = _Search(graph, targets, request, cfg)
     path = search.run(n, request.start_id)
@@ -392,7 +439,7 @@ def generate_set(
         search.targets = targets
 
     positions = _positions(search, path, targets, request)
-    stats = _stats(positions, graph, len(pool), len(cache or {}), cfg)
+    stats = _stats(positions, graph, len(pool), len(cache or {}), cfg, request.style)
     return GeneratedSet(request.curve.name, positions, stats, warnings), graph
 
 
@@ -406,7 +453,11 @@ def _positions(
         if i + 1 < len(path):
             a = t[tid]
             transition = score_transition(
-                a, t[path[i + 1]], energy_target=search.target_delta(a, i + 1), cfg=search.cfg
+                a,
+                t[path[i + 1]],
+                energy_target=search.target_delta(a, i + 1),
+                cfg=search.cfg,
+                style=search.style,
             )
         positions.append(SetPosition(i, t[tid], targets[i], transition))
     fixed_start = request.start_id is not None
@@ -435,11 +486,11 @@ def _alternates(search: _Search, path: list[str], i: int) -> list[Alternate]:
     if prev_id is None:
         ceilings = sorted(((c, search.start_pts(t[c])) for c in t), key=lambda cf: -cf[1])
     else:
-        e_max = search.energy_weight_pts
+        e_max = search.energy_weight_pts + search.style_max_pts
         ceilings = [(c, ub + e_max) for c, ub in g.candidates(prev_id)]
 
     best: list[tuple[float, str]] = []
-    max_second = 100.0 if next_id else 0.0  # a step never scores above 100
+    max_second = 100.0 + search.style_max_pts if next_id else 0.0  # a step's ceiling
     for c_id, ceiling in ceilings:
         if len(best) >= count and ceiling + max_second <= best[0][0]:
             break
@@ -466,10 +517,14 @@ def _alternates(search: _Search, path: list[str], i: int) -> list[Alternate]:
         into = out_of = None
         if prev_id is not None:
             a = t[prev_id]
-            into = score_transition(a, c, energy_target=search.target_delta(a, i), cfg=cfg)
+            into = score_transition(
+                a, c, energy_target=search.target_delta(a, i), cfg=cfg, style=search.style
+            )
         if next_id is not None:
             delta = search.target_delta(c, i + 1)
-            out_of = score_transition(c, t[next_id], energy_target=delta, cfg=cfg)
+            out_of = score_transition(
+                c, t[next_id], energy_target=delta, cfg=cfg, style=search.style
+            )
         out.append(Alternate(c, fit, into, out_of))
     return out
 
@@ -480,6 +535,7 @@ def _stats(
     pool_size: int,
     cached: int,
     cfg: ScoringConfig,
+    style: StyleProfile | None = None,
 ) -> SetStats:
     totals = [p.transition.total for p in positions if p.transition]
     seconds = 0.0
@@ -491,6 +547,9 @@ def _stats(
         abs(p.track.energy - p.target_energy) for p in positions if p.track.energy is not None
     ]
     bpms = [p.track.bpm for p in positions if p.track.bpm]
+    kinds = [p.transition.suggested_type.value for p in positions if p.transition]
+    mix = {k: kinds.count(k) / len(kinds) for k in sorted(set(kinds))} if kinds else {}
+    fits = [style.style_fit(p.track, cfg).score for p in positions] if style else []
     return SetStats(
         track_count=len(positions),
         estimated_seconds=seconds,
@@ -502,4 +561,10 @@ def _stats(
         pool_size=pool_size,
         pairs_scored=len(graph.new_scores),
         pairs_from_cache=cached,
+        style=style.name if style else None,
+        mean_style_fit=statistics.fmean(fits) if fits else None,
+        transition_mix=mix,
+        style_transition_mix={str(k): v for k, v in style.transition_type_mix.items()}
+        if style
+        else {},
     )

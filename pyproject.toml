@@ -1,6 +1,6 @@
 [project]
 name = "setsmith"
-version = "0.3.0"
+version = "0.4.0"
 description = "Transition-aware DJ set builder for Rekordbox"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,8 @@ essentia = [
     "numpy<2; sys_platform == 'darwin' and platform_machine == 'arm64'",
     "essentia>2.1b6.dev1177; sys_platform != 'darwin' or platform_machine != 'arm64'",
 ]
+# Read-only access to a copy of Rekordbox's master.db (My Tags, play history).
+rekordbox = ["pyrekordbox>=0.4.4"]
 
 [project.scripts]
 setsmith = "setsmith.cli:app"
@@ -64,7 +66,10 @@ strict = true
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["lxml", "lxml.*", "librosa", "librosa.*", "soundfile", "essentia", "essentia.*", "allin1"]
+module = [
+    "lxml", "lxml.*", "librosa", "librosa.*", "soundfile", "essentia", "essentia.*", "allin1",
+    "pyrekordbox", "pyrekordbox.*", "psutil",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

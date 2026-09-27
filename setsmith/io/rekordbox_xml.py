@@ -19,7 +19,14 @@ from lxml import etree
 from setsmith import __version__
 from setsmith.keys.camelot import normalize_key
 from setsmith.model.collection import Collection, KeyType, NodeType, PlaylistNode
-from setsmith.model.track import CuePoint, CueType, TempoMarker, Track, derive_energy
+from setsmith.model.track import (
+    CuePoint,
+    CueType,
+    TempoMarker,
+    Track,
+    derive_energy,
+    derive_vocal,
+)
 from setsmith.scoring.weights import DEFAULT_CONFIG, ScoringConfig
 
 # Rekordbox stores star ratings as 0, 51, 102, 153, 204, 255.
@@ -122,6 +129,7 @@ def parse_track(elem: Any, cfg: ScoringConfig = DEFAULT_CONFIG) -> Track:
         energy=energy,
         energy_source=energy_source,
         variable_tempo=variable_tempo,
+        vocal=derive_vocal(_attr(elem, "Name"), _attr(elem, "Mix"), comments, cfg=cfg.vocal),
     )
 
 

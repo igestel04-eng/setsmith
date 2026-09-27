@@ -1,0 +1,18 @@
+{
+  "name": "Inspired by Keinemusik",
+  "description": "Berlin collective (&ME, Rampa, Adam Port, Reznik). Percussive afro and melodic house with lush melodies, chant-like or emotive vocals, long builds, extended back-to-back sets.",
+  "bpm_band": [117, 124],
+  "bpm_preferred": 120,
+  "max_tempo_drift_bpm": 5,
+  "key_mode_preference": {"minor": 0.8, "major": 0.2},
+  "allowed_key_moves": {"same": 1.0, "adjacent": 1.0, "relative": 0.9, "energy_boost": 0.5, "semitone_lift": 0.2, "diagonal": 0.4},
+  "energy_curve": "journey",
+  "genre_weights": {"afro house": 1.0, "melodic house & techno": 0.9, "organic house": 0.7, "deep house": 0.6, "house": 0.4, "techno": 0.3},
+  "vocal_density": 0.5,
+  "transition_length_bars": {"8": 0.05, "16": 0.2, "32": 0.45, "64": 0.3},
+  "transition_type_mix": {"long_blend": 0.7, "cut": 0.05, "echo_out": 0.05, "filter_sweep": 0.15, "drop_swap": 0.05},
+  "reference_artists": ["&ME", "Rampa", "Adam Port", "Reznik", "Black Coffee"],
+  "reference_labels": ["Keinemusik"],
+  "notes": "Signature tracks sit at 119-122 BPM (Move 120 BPM Ab minor, Muye Black Coffee remix 120 BPM A minor). Prefer shakers, toms, tonal percussion, piano, uplifting vocals. Build slowly, place big vocals at peaks.",
+  "sources": ["Beatport track metadata", "Crack Magazine 2019", "DJ Mag Top 100 DJs 2024", "DJ Mag Rampa profile 2017"]
+}

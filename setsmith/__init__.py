@@ -1,3 +1,3 @@
 """Setsmith: transition-aware DJ set builder for Rekordbox."""
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

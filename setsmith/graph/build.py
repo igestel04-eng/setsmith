@@ -16,7 +16,7 @@ import hashlib
 import json
 from bisect import bisect_left, bisect_right
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from setsmith.model.track import Track
 from setsmith.scoring.transition import (
@@ -26,6 +26,9 @@ from setsmith.scoring.transition import (
     score_transition,
 )
 from setsmith.scoring.weights import DEFAULT_CONFIG, ScoringConfig
+
+if TYPE_CHECKING:
+    from setsmith.styles.profile import StyleProfile
 
 PairKey = tuple[str, str]
 PairScore = tuple[float, bool]  # (base points, energy-boost key move)
@@ -53,9 +56,13 @@ def _canonical(value: Any) -> Any:
     return value
 
 
-def config_key(cfg: ScoringConfig) -> str:
-    """Identifies the scoring logic and weights a cached score was computed with."""
-    canonical = json.dumps(_canonical(cfg.model_dump()), sort_keys=True)
+def config_key(cfg: ScoringConfig, style: StyleProfile | None = None) -> str:
+    """Identifies the scoring logic, weights and style a cached score was computed with."""
+    payload_data = {
+        "cfg": cfg.model_dump(),
+        "style": style.model_dump(mode="json") if style else None,
+    }
+    canonical = json.dumps(_canonical(payload_data), sort_keys=True)
     payload = f"{SCORER_VERSION}:{canonical}"
     return hashlib.sha1(payload.encode(), usedforsecurity=False).hexdigest()[:20]
 
@@ -66,8 +73,10 @@ class CompatibilityGraph:
         tracks: Iterable[Track],
         cfg: ScoringConfig = DEFAULT_CONFIG,
         cache: dict[PairKey, PairScore] | None = None,
+        style: StyleProfile | None = None,
     ) -> None:
         self.cfg = cfg
+        self.style = style
         self.tracks = {t.id: t for t in tracks}
         self.fingerprints = {tid: track_fingerprint(t) for tid, t in self.tracks.items()}
         by_bpm = sorted((t.bpm, tid) for tid, t in self.tracks.items() if t.bpm)
@@ -108,7 +117,9 @@ class CompatibilityGraph:
         cached = self._cache.get(key)
         if cached is not None:
             return cached
-        score = score_transition(self.tracks[a_id], self.tracks[b_id], cfg=self.cfg)
+        score = score_transition(
+            self.tracks[a_id], self.tracks[b_id], cfg=self.cfg, style=self.style
+        )
         value = (
             score.total - score.components["energy"].points,
             Flag.ENERGY_BOOST_KEY in score.flags,
@@ -127,7 +138,7 @@ class CompatibilityGraph:
         if found is None:
             a = self.tracks[a_id]
             found = [
-                (b, base_upper_bound(a, self.tracks[b], self.cfg))
+                (b, base_upper_bound(a, self.tracks[b], self.cfg, self.style))
                 for b in self.tempo_neighbors(a_id)
             ]
             found.sort(key=lambda e: (-e[1], e[0]))

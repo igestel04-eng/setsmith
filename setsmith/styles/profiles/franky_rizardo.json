@@ -1,0 +1,18 @@
+{
+  "name": "Inspired by Franky Rizardo",
+  "description": "Dutch house and tech house DJ (Music On, ANTS, elrow, FLOW, LTF Records). Groove-first, sparkly tech house with deeper detours that return to the groove. Driving, danceable, high-energy club sets.",
+  "bpm_band": [125, 130],
+  "bpm_preferred": 128,
+  "max_tempo_drift_bpm": 4,
+  "key_mode_preference": {"minor": 0.6, "major": 0.4},
+  "allowed_key_moves": {"same": 1.0, "adjacent": 1.0, "relative": 0.9, "energy_boost": 0.7, "semitone_lift": 0.4, "diagonal": 0.5},
+  "energy_curve": "peak_time",
+  "genre_weights": {"tech house": 1.0, "house": 0.9, "minimal / deep tech": 0.7, "deep house": 0.6, "melodic house & techno": 0.4},
+  "vocal_density": 0.4,
+  "transition_length_bars": {"8": 0.15, "16": 0.45, "32": 0.35, "64": 0.05},
+  "transition_type_mix": {"long_blend": 0.45, "cut": 0.15, "echo_out": 0.05, "filter_sweep": 0.15, "drop_swap": 0.2},
+  "reference_artists": ["Franky Rizardo", "Marco Carola"],
+  "reference_labels": ["LTF Records", "Defected", "Music On"],
+  "notes": "Recent LTF releases sit at 128-129 BPM (Zero Azucar 129, Shinjuku 129, Love Me Right 128). Keep the groove locked, allow short deeper dips of 1-2 energy points, then return to driving tech house.",
+  "sources": ["Beatport track metadata", "RA biography", "Mixmag Brasil cover story", "Gray Area artist page"]
+}

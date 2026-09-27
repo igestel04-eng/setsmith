@@ -8,7 +8,7 @@ from enum import IntEnum, StrEnum
 from typing import Any
 
 from setsmith.keys.camelot import parse_key
-from setsmith.scoring.weights import DEFAULT_CONFIG, EnergyConfig
+from setsmith.scoring.weights import DEFAULT_CONFIG, EnergyConfig, VocalTagConfig
 
 # Matches energy tags in Comments: "E7", "e 7", "Energy 7", and Mixed In Key's "8A - Energy 7".
 _ENERGY_TAG_RE = re.compile(r"\b(?:energy|e)\s*(10|[1-9])\b", re.IGNORECASE)
@@ -74,6 +74,7 @@ class Track:
     energy: float | None = None
     energy_source: EnergySource | None = None
     detected_camelot: str | None = None  # Phase 3: key detected from the audio
+    my_tags: list[str] = field(default_factory=list)  # Rekordbox My Tags, "Category: Tag"
     vocal: bool | None = None
     intro_bars: int | None = None
     outro_bars: int | None = None
@@ -102,6 +103,8 @@ class Track:
             "energy_source": self.energy_source.value if self.energy_source else None,
             "genre": self.genre,
             "rating": self.rating,
+            "vocal": self.vocal,
+            "my_tags": self.my_tags,
             "intro_bars": self.intro_bars,
             "outro_bars": self.outro_bars,
             "duration_s": self.duration_s,
@@ -128,3 +131,17 @@ def derive_energy(
         value = min(cfg.scale_max, max(cfg.scale_min, rating * cfg.from_rating_multiplier))
         return value, EnergySource.RATING
     return None, None
+
+
+def _has_word(text: str, words: tuple[str, ...]) -> bool:
+    return any(re.search(rf"\b{re.escape(w)}\b", text) for w in words)
+
+
+def derive_vocal(*texts: str, cfg: VocalTagConfig = DEFAULT_CONFIG.vocal) -> bool | None:
+    """True for "Vocal Mix" / a "vocal" comment, False for "Dub" / "Instrumental", else None."""
+    text = " ".join(texts).casefold()
+    vocal = _has_word(text, cfg.vocal_words)
+    instrumental = _has_word(text, cfg.instrumental_words)
+    if vocal == instrumental:
+        return None
+    return vocal

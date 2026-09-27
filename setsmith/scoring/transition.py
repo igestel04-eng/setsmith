@@ -8,10 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from setsmith.keys.camelot import KeyMove, camelot_step, classify_move, parse_key
 from setsmith.model.track import Track
+
+if TYPE_CHECKING:
+    from setsmith.styles.profile import StyleProfile
+
 from setsmith.scoring.weights import (
     DEFAULT_CONFIG,
     ScoringConfig,
@@ -182,30 +186,43 @@ _MOVE_FLAG = {
 }
 
 
-def harmonic_score(a: Track, b: Track, cfg: ScoringConfig = DEFAULT_CONFIG) -> float:
+def _move_value(move: KeyMove, cfg: ScoringConfig, style: StyleProfile | None) -> float:
+    """Score for a Camelot move, blended with the style's allowed_key_moves weight."""
+    base = cfg.harmonic.move_scores[move]
+    if style is None:
+        return base
+    share = cfg.style.key_move_blend
+    return (1 - share) * base + share * style.key_move_weight(move)
+
+
+def harmonic_score(
+    a: Track, b: Track, cfg: ScoringConfig = DEFAULT_CONFIG, style: StyleProfile | None = None
+) -> float:
     """Harmonic component alone (0-1), including the key-confidence pull."""
     h = cfg.harmonic
     ka, kb = parse_key(a.camelot), parse_key(b.camelot)
     if ka is None or kb is None:
         return h.missing_score
-    raw = h.move_scores[classify_move(ka, kb)]
+    raw = _move_value(classify_move(ka, kb), cfg, style)
     return h.neutral_score + (raw - h.neutral_score) * a.key_confidence * b.key_confidence
 
 
-def base_upper_bound(a: Track, b: Track, cfg: ScoringConfig = DEFAULT_CONFIG) -> float:
+def base_upper_bound(
+    a: Track, b: Track, cfg: ScoringConfig = DEFAULT_CONFIG, style: StyleProfile | None = None
+) -> float:
     """Cheap ceiling on the total minus the energy component: exact harmonic and tempo,
     with genre and extras assumed perfect. Lets searches skip full scoring of hopeless pairs.
     """
     w = cfg.weights
     return 100 * (
-        w.harmonic * harmonic_score(a, b, cfg)
+        w.harmonic * harmonic_score(a, b, cfg, style)
         + w.tempo * tempo_score(a, b, cfg)
         + w.genre_style
         + w.extras
     )
 
 
-def _harmonic(a: Track, b: Track, cfg: ScoringConfig) -> _HarmonicPart:
+def _harmonic(a: Track, b: Track, cfg: ScoringConfig, style: StyleProfile | None) -> _HarmonicPart:
     h = cfg.harmonic
     ka, kb = parse_key(a.camelot), parse_key(b.camelot)
     if ka is None or kb is None:
@@ -213,12 +230,14 @@ def _harmonic(a: Track, b: Track, cfg: ScoringConfig) -> _HarmonicPart:
 
     move = classify_move(ka, kb)
     confidence = a.key_confidence * b.key_confidence
-    score = harmonic_score(a, b, cfg)
+    score = harmonic_score(a, b, cfg, style)
 
     flags = [_MOVE_FLAG[move]] if move in _MOVE_FLAG else []
     step = camelot_step(ka, kb)
     step_text = f", {step:+d}" if step else ""
     reason = f"{ka} -> {kb} ({_MOVE_LABEL[move]}{step_text})"
+    if style is not None:
+        reason += f", style allows {style.key_move_weight(move):g}"
     if confidence < 1.0:
         reason += f", key confidence {confidence:.2f}"
         if confidence < h.low_confidence_flag_below:
@@ -248,7 +267,17 @@ def _energy(a: Track, b: Track, target: float, cfg: ScoringConfig) -> _EnergyPar
     return _EnergyPart(score, reason, [], delta)
 
 
-def _genre(a: Track, b: Track, cfg: ScoringConfig) -> _Part:
+def _genre(a: Track, b: Track, cfg: ScoringConfig, style: StyleProfile | None) -> _Part:
+    part = _genre_match(a, b, cfg)
+    if style is None:
+        return part
+    weight = style.genre_weight(b.genre, cfg)
+    share = cfg.genre.style_profile_blend
+    score = (1 - share) * part.score + share * weight
+    return _Part(score, f"{part.reason}; style genre weight {weight:g}", part.flags)
+
+
+def _genre_match(a: Track, b: Track, cfg: ScoringConfig) -> _Part:
     g = cfg.genre
     ga, gb = g.normalize(a.genre), g.normalize(b.genre)
     if not ga or not gb:
@@ -313,6 +342,7 @@ def _suggest_type(
     harmonic: _HarmonicPart,
     energy: _EnergyPart,
     cfg: ScoringConfig,
+    style: StyleProfile | None,
 ) -> tuple[TransitionType, int, str]:
     tc = cfg.transition
     tempo_far = tempo.pct is not None and tempo.pct > cfg.tempo.blend_max_pct
@@ -326,6 +356,8 @@ def _suggest_type(
         b_sparse = b.intro_bars is not None and b.intro_bars >= tc.sparse_intro_min_bars
         if b_sparse:
             return TransitionType.ECHO_OUT, tc.echo_out_bars, f"{why}; b starts sparse"
+        if style is not None and style.type_share("echo_out") > style.type_share("cut"):
+            return TransitionType.ECHO_OUT, tc.echo_out_bars, f"{why}; the style prefers echo outs"
         return TransitionType.CUT, tc.cut_bars, f"{why}; cut on a phrase boundary"
 
     if energy.delta is not None and energy.delta >= tc.drop_swap_min_energy_jump:
@@ -336,11 +368,14 @@ def _suggest_type(
     )
     tempo_close = tempo.pct is not None and tempo.pct <= cfg.tempo.long_blend_max_pct
     if tempo_close and harmonic.score >= cfg.harmonic.long_blend_min_score and sections_ok:
-        return (
-            TransitionType.LONG_BLEND,
-            tc.long_blend_bars,
-            "tempo and key compatible; swap basslines on a phrase boundary",
-        )
+        why = "tempo and key compatible; swap basslines on a phrase boundary"
+        if style is not None and style.prefers_long_blends(cfg):
+            return (
+                TransitionType.LONG_BLEND,
+                tc.long_blend_style_bars,
+                f"{why}; the style runs long",
+            )
+        return TransitionType.LONG_BLEND, tc.long_blend_bars, why
 
     if _arrangement_known(a, b) and min(a.outro_bars or 0, b.intro_bars or 0) < (
         cfg.extras.arrangement_short_below_bars
@@ -372,18 +407,21 @@ def score_transition(
     *,
     energy_target: float | None = None,
     cfg: ScoringConfig = DEFAULT_CONFIG,
+    style: StyleProfile | None = None,
 ) -> TransitionScore:
     """Score the transition from a (playing) to b (incoming).
 
     energy_target is the desired energy change (b - a) on the 1-10 scale; set generation
-    passes the curve's target, suggestions default to holding energy steady.
+    passes the curve's target, suggestions default to holding energy steady. A style
+    profile blends its key-move and genre weights into the harmonic and genre components
+    and steers the transition type and length.
     """
     target = cfg.energy.default_target_delta if energy_target is None else energy_target
     tempo = _tempo(a, b, cfg)
-    harmonic = _harmonic(a, b, cfg)
+    harmonic = _harmonic(a, b, cfg, style)
     energy = _energy(a, b, target, cfg)
-    genre = _genre(a, b, cfg)
-    kind, bars, why = _suggest_type(a, b, tempo, harmonic, energy, cfg)
+    genre = _genre(a, b, cfg, style)
+    kind, bars, why = _suggest_type(a, b, tempo, harmonic, energy, cfg, style)
     extras = _extras(a, b, kind, cfg)
 
     w = cfg.weights

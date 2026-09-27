@@ -79,7 +79,7 @@ class GenreConfig(_Config):
     neighbor_score: float = 0.7
     other_score: float = 0.3
     missing_score: float = 0.5
-    style_profile_blend: float = 0.5  # Phase 4: share of the profile's genre weight
+    style_profile_blend: float = 0.5  # share of the style profile's genre weight
     # Genres in the same group are neighbors. A genre may belong to several groups.
     neighbor_groups: tuple[frozenset[str], ...] = (
         frozenset({"afro house", "melodic house & techno", "deep house", "organic house"}),
@@ -143,7 +143,7 @@ class ExtrasConfig(_Config):
 
 class TransitionConfig(_Config):
     long_blend_bars: int = 32
-    long_blend_style_bars: int = 64  # Phase 4: when a style profile prefers long blends
+    long_blend_style_bars: int = 64  # when a style profile prefers long blends
     filter_sweep_bars: int = 16
     drop_swap_bars: int = 16
     cut_bars: int = 8
@@ -208,7 +208,7 @@ class SetConfig(_Config):
     tempo_drift_penalty: float = 20.0
     tempo_reversal_bpm: float = 3.0  # tempo drops bigger than this while energy is rising
     tempo_reversal_penalty: float = 10.0
-    style_fit_points: float = 15.0  # Phase 4: style fit x this is added to each step
+    style_fit_points: float = 15.0  # style fit (0-1) x this is added to each step
     # Half/double-time tracks are folded into the octave of the set's first track.
     octave_fold_ratio: float = 1.414
     default_track_seconds: float = 360.0  # when TotalTime is missing
@@ -295,6 +295,33 @@ class AnalysisConfig(_Config):
     key_confidence_detected_only: float = 0.8  # no usable tag: the detected key is used
 
 
+class StyleConfig(_Config):
+    """How a DJ style profile shapes scoring (Phase 4)."""
+
+    key_move_blend: float = 0.5  # share of the profile's allowed_key_moves weight
+    unlisted_genre_weight: float = 0.2  # genre the profile does not mention
+    unknown_genre_weight: float = 0.5  # track without a genre
+    # Style fit = weighted average of the parts that are known for the track.
+    fit_weights: dict[str, float] = {"bpm": 0.35, "genre": 0.35, "key_mode": 0.2, "vocal": 0.1}
+    bpm_falloff_bpm: float = 4.0  # BPM fit falls from 1 at the band edge to 0 this far out
+    long_blend_64_min_share: float = 0.25  # profile "prefers long blends" at this 64-bar share
+    mix_tolerance: float = 0.02  # transition mixes must sum to 1 within this
+
+
+class VocalTagConfig(_Config):
+    """Vocal / instrumental from metadata, until audio vocal detection exists.
+
+    Whole words in the title, Mix field or Comments. Both kinds present means unknown.
+    """
+
+    vocal_words: tuple[str, ...] = ("vocal", "vocals", "vox", "acapella", "a cappella")
+    instrumental_words: tuple[str, ...] = ("instrumental", "inst", "dub", "no vocals")
+
+
+class RekordboxDbConfig(_Config):
+    keep_copies: int = 3  # master.db copies kept in Setsmith's folder; older ones are pruned
+
+
 class ScoringConfig(_Config):
     weights: ComponentWeights = ComponentWeights()
     tempo: TempoConfig = TempoConfig()
@@ -307,6 +334,9 @@ class ScoringConfig(_Config):
     display: DisplayConfig = DisplayConfig()
     sets: SetConfig = SetConfig()
     analysis: AnalysisConfig = AnalysisConfig()
+    style: StyleConfig = StyleConfig()
+    vocal: VocalTagConfig = VocalTagConfig()
+    rekordbox_db: RekordboxDbConfig = RekordboxDbConfig()
 
 
 DEFAULT_CONFIG = ScoringConfig()

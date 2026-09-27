@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -27,6 +28,15 @@ from setsmith.analysis.audio import (
     location_to_path,
 )
 from setsmith.graph.build import config_key, track_fingerprint
+from setsmith.io.enrich import MyTagCoverage, apply_my_tags
+from setsmith.io.rekordbox_db import (
+    KEY_ENV,
+    RekordboxDbError,
+    copy_master_db,
+    default_master_db,
+    read_master_db,
+    rekordbox_running,
+)
 from setsmith.io.rekordbox_xml import (
     ExportError,
     PlaylistSpec,
@@ -43,8 +53,22 @@ from setsmith.scoring.weights import DEFAULT_CONFIG
 from setsmith.sets.curves import parse_curve
 from setsmith.sets.generate import GeneratedSet, SetGenerationError, SetRequest, filter_pool
 from setsmith.sets.generate import generate_set as run_generation
-from setsmith.sets.report import render_markdown, set_comments, set_to_dict, summary_line
+from setsmith.sets.report import (
+    render_markdown,
+    set_comments,
+    set_to_dict,
+    style_line,
+    summary_line,
+)
 from setsmith.store import Store, default_db_path
+from setsmith.styles.profile import (
+    StyleError,
+    StyleProfile,
+    list_styles,
+    load_style,
+    load_style_file,
+    user_styles_dir,
+)
 
 app = typer.Typer(
     help="Transition-aware DJ set builder for Rekordbox XML exports. Reads only; never "
@@ -72,6 +96,14 @@ JsonOpt = Annotated[bool, typer.Option("--json", help="Print machine-readable JS
 NoAnalysisOpt = Annotated[
     bool,
     typer.Option("--no-analysis", help="Ignore stored audio analysis; use Rekordbox tags only."),
+]
+StyleOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--style",
+        "-s",
+        help="Style profile: a name from 'setsmith styles list' or a path to a .json file.",
+    ),
 ]
 DbOpt = Annotated[
     Path | None,
@@ -107,18 +139,38 @@ def _load(path: Path) -> Collection:
         raise typer.Exit(EXIT_LOAD_ERROR) from exc
 
 
+@dataclass(slots=True)
+class Enrichment:
+    analysis: AnalysisCoverage | None = None
+    my_tags: MyTagCoverage | None = None
+    rekordbox: dict[str, Any] | None = None  # last master.db import
+
+
 def _load_analyzed(
     path: Path, db: Path | None, use_analysis: bool
-) -> tuple[Collection, AnalysisCoverage | None]:
-    """Load a collection and apply stored audio analysis, if there is any."""
+) -> tuple[Collection, Enrichment]:
+    """Load a collection and apply stored audio analysis and imported My Tags, if any."""
     col = _load(path)
-    if not use_analysis:
-        return col, None
+    info = Enrichment()
     db_path = db or default_db_path()
     if not db_path.exists():  # never create a database just to read from it
-        return col, None
+        return col, info
     with Store(db_path) as store:
-        return col, load_and_apply(col, store)
+        if use_analysis:
+            info.analysis = load_and_apply(col, store)
+        info.rekordbox = store.rekordbox_import_info()
+        if info.rekordbox:
+            info.my_tags = apply_my_tags(col, store.load_my_tags())
+    return col, info
+
+
+def _load_style_opt(name: str | None) -> StyleProfile | None:
+    if name is None:
+        return None
+    try:
+        return load_style(name)
+    except StyleError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--style") from exc
 
 
 def _emit_json(data: Any) -> None:
@@ -239,6 +291,9 @@ def _suggest_table(suggestions: list[Suggestion], wide: bool) -> Table:
     if wide:
         for name in ("Harm", "Tempo", "Enrg", "Genre", "Extra"):
             table.add_column(name, justify="right", style="dim")
+    styled = any(s.style_fit is not None for s in suggestions)
+    if styled:
+        table.add_column("Style", justify="right")
     table.add_column("Transition", no_wrap=True)
     if wide:
         table.add_column("Flags", style="yellow", overflow="fold", ratio=1)
@@ -258,6 +313,8 @@ def _suggest_table(suggestions: list[Suggestion], wide: bool) -> Table:
         ]
         if wide:
             row += [_pct(c.score) for c in s.score.components.values()]
+        if styled:
+            row.append(_pct(s.style_fit.score) if s.style_fit else "-")
         row.append(f"{s.score.suggested_type.value} {s.score.suggested_length_bars}b")
         if wide:
             row.append(flags)
@@ -286,22 +343,36 @@ def suggest(
     explain: Annotated[
         bool, typer.Option("--explain", "-x", help="Show the reason behind every component score.")
     ] = False,
+    style: StyleOpt = None,
     db: DbOpt = None,
     no_analysis: NoAnalysisOpt = False,
     as_json: JsonOpt = False,
 ) -> None:
-    """Suggest the best tracks to play after a seed track, with a score breakdown."""
+    """Suggest the best tracks to play after a seed track, with a score breakdown.
+
+    With --style, key moves and genres are weighted by the profile and each suggestion
+    shows its style fit (0-100); the fit is shown, not added to the score.
+    """
+    profile = _load_style_opt(style)
     col, _ = _load_analyzed(collection, db, not no_analysis)
     seed = _resolve_seed(col, track, track_id, as_json)
-    results = suggest_next(col, seed, top=top, energy_target=energy_delta)
+    results = suggest_next(col, seed, top=top, energy_target=energy_delta, style=profile)
 
     if as_json:
         _emit_json(
             {
                 "seed": seed.summary(),
                 "energy_target": energy_delta,
+                "style": profile.name if profile else None,
                 "suggestions": [
-                    {"rank": i, "track": s.track.summary(), "score": s.score.to_dict()}
+                    {
+                        "rank": i,
+                        "track": s.track.summary(),
+                        "score": s.score.to_dict(),
+                        "style_fit": {"score": round(s.style_fit.score, 3), **s.style_fit.parts}
+                        if s.style_fit
+                        else None,
+                    }
                     for i, s in enumerate(results, 1)
                 ],
             }
@@ -309,6 +380,8 @@ def suggest(
         return
 
     out.print(_seed_line(seed))
+    if profile is not None:
+        out.print(f"[dim]Style: {profile.name} (a profile, not endorsed by the artists)[/dim]")
     if not results:
         out.print("No other tracks in the collection.")
         return
@@ -320,6 +393,11 @@ def suggest(
             out.print(f"\n[bold]{rank}. {s.track.display}[/bold]  [dim]{s.score.total:.1f}[/dim]")
             for line in s.score.explain():
                 out.print(f"   {line}", highlight=False)
+            if s.style_fit is not None:
+                fit = s.style_fit
+                out.print(
+                    f"   {'style fit':<12} {fit.score:4.2f}  {fit.describe()}", highlight=False
+                )
     else:
         out.print("[dim]Scores are 0-100. Add --explain for the reasoning behind each score.[/dim]")
 
@@ -332,7 +410,8 @@ def info(
     as_json: JsonOpt = False,
 ) -> None:
     """Summarize a collection: metadata coverage, keys, genres, analysis and warnings."""
-    col, analysis = _load_analyzed(collection, db, not no_analysis)
+    col, enrichment = _load_analyzed(collection, db, not no_analysis)
+    analysis = enrichment.analysis
     tracks = list(col.tracks.values())
     n = len(tracks)
     playlists = (
@@ -364,6 +443,8 @@ def info(
                 "keys": dict(keys.most_common()),
                 "genres": dict(genres.most_common()),
                 "analysis": analysis.to_dict() if analysis else None,
+                "my_tags": enrichment.my_tags.to_dict() if enrichment.my_tags else None,
+                "rekordbox_import": enrichment.rekordbox,
                 "warnings": col.warnings,
             }
         )
@@ -377,6 +458,12 @@ def info(
     out.print(table)
     if analysis is not None:
         _print_analysis_coverage(analysis)
+    if enrichment.rekordbox and enrichment.my_tags is not None:
+        rb = enrichment.rekordbox
+        out.print(
+            f"[bold]Rekordbox My Tags[/bold]  {enrichment.my_tags.tagged} tracks tagged, "
+            f"{rb['sessions']} history sessions (imported {rb['imported_at'][:10]})"
+        )
     if genres:
         top_genres = ", ".join(f"{g} ({c})" for g, c in genres.most_common(8))
         out.print(f"[bold]Top genres[/bold]  {top_genres}")
@@ -469,14 +556,15 @@ def build(
         int | None, typer.Option("--tracks", "-n", min=2, help="Set length in tracks.")
     ] = None,
     curve: Annotated[
-        str,
+        str | None,
         typer.Option(
             "--curve",
             "-c",
             help="Energy curve: warm_up, peak_time, closing, journey, or custom points "
-            "such as '3,5,8,6' or '0:3,0.6:9,1:5'.",
+            "such as '3,5,8,6' or '0:3,0.6:9,1:5' (default: the style's curve, else journey).",
         ),
-    ] = "journey",
+    ] = None,
+    style: StyleOpt = None,
     start: Annotated[
         str | None, typer.Option("--start", help='Opening track: "Artist - Title".')
     ] = None,
@@ -492,6 +580,14 @@ def build(
     exclude: Annotated[
         list[str] | None,
         typer.Option("--exclude", "-x", help='Leave out a TrackID or "Artist - Title" (repeat).'),
+    ] = None,
+    tag: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--tag",
+            help="Only tracks with this Rekordbox My Tag (repeat for any of several; "
+            "needs 'setsmith rekordbox import').",
+        ),
     ] = None,
     artist_gap: Annotated[
         int | None,
@@ -555,8 +651,14 @@ def build(
     start_track = _resolve_track(
         col, start, start_id, as_json, flags=("--start", "--start-id"), required=False
     )
+    profile = _load_style_opt(style)
     try:
-        energy_curve = parse_curve(curve)
+        if curve is not None:
+            energy_curve = parse_curve(curve)
+        elif profile is not None:
+            energy_curve = profile.curve()
+        else:
+            energy_curve = parse_curve("journey")
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="--curve") from exc
     genres = frozenset(g for item in genre or [] for g in DEFAULT_CONFIG.genre.normalize(item))
@@ -575,10 +677,12 @@ def build(
         artist_gap=artist_gap,
         max_tempo_drift_bpm=max_drift,
         beam_width=beam,
+        style=profile,
+        tags=frozenset(t.casefold() for t in tag or []),
     )
 
     store = None if no_cache else Store(db)
-    cfg_key = config_key(DEFAULT_CONFIG)
+    cfg_key = config_key(DEFAULT_CONFIG, profile)
     try:
         cache = None
         if store is not None:
@@ -595,7 +699,8 @@ def build(
             store.close()
 
     length = f"{tracks} tracks" if tracks else f"{minutes:g}min"
-    set_name = name or f"{energy_curve.name} {length} {datetime.now():%Y-%m-%d %H.%M}"
+    label = f"{profile.name} {energy_curve.name}" if profile else energy_curve.name
+    set_name = name or f"{label} {length} {datetime.now():%Y-%m-%d %H.%M}"
 
     exported = None
     if out_path is not None:
@@ -639,6 +744,8 @@ def build(
 
     out.print(Text(set_name, style="bold cyan"))
     out.print(f"[dim]{summary_line(generated)}[/dim]")
+    if generated.stats.style is not None:
+        out.print(f"[dim]{style_line(generated)}[/dim]", highlight=False)
     for warning in generated.warnings:
         out.print(f"[yellow]warning:[/yellow] {warning}", highlight=False)
     out.print(_set_table(generated, wide=out.width >= DEFAULT_CONFIG.display.wide_table_min_width))
@@ -895,6 +1002,244 @@ def _record(
         return 0
     store.save_analysis(result)
     return 1
+
+
+# ---------------------------------------------------------------- styles
+
+styles_app = typer.Typer(
+    help="DJ style profiles: musical parameters inspired by a DJ's public output. "
+    "Profiles imply no endorsement by the artists; edit them freely.",
+    no_args_is_help=True,
+)
+app.add_typer(styles_app, name="styles")
+
+
+@styles_app.command("list")
+def styles_list(as_json: JsonOpt = False) -> None:
+    """List available style profiles (built-in and your own)."""
+    entries = []
+    for entry in list_styles():
+        try:
+            profile: StyleProfile | None = load_style_file(entry.path)
+            problem = ""
+        except StyleError as exc:
+            profile, problem = None, str(exc)
+        entries.append((entry, profile, problem))
+    if as_json:
+        _emit_json(
+            [
+                {
+                    "key": e.key,
+                    "name": p.name if p else None,
+                    "path": str(e.path),
+                    "builtin": e.builtin,
+                    "error": problem or None,
+                }
+                for e, p, problem in entries
+            ]
+        )
+        return
+    table = Table("Key", "Name", "BPM", "Curve", "Source", pad_edge=False)
+    for entry, profile, problem in entries:
+        source = "built-in" if entry.builtin else str(entry.path)
+        if profile is None:
+            table.add_row(entry.key, Text(problem, style="red"), "", "", source)
+            continue
+        lo, hi = profile.bpm_band
+        curve = profile.energy_curve if isinstance(profile.energy_curve, str) else "custom"
+        table.add_row(entry.key, profile.name, f"{lo:g}-{hi:g}", curve, source)
+    out.print(table)
+    out.print(
+        f"[dim]Your own profiles go in {user_styles_dir()} (see 'setsmith styles copy').[/dim]"
+    )
+
+
+@styles_app.command("show")
+def styles_show(
+    name: Annotated[str, typer.Argument(help="Profile name or path to a .json file.")],
+    as_json: JsonOpt = False,
+) -> None:
+    """Show a profile's parameters."""
+    profile = _load_style_opt(name)
+    assert profile is not None
+    if as_json:
+        _emit_json(profile.model_dump(mode="json"))
+        return
+    out.print(f"[bold]{profile.name}[/bold]  [dim](a profile, not endorsed by the artists)[/dim]")
+    out.print(profile.description, highlight=False)
+    lo, hi = profile.bpm_band
+    rows = [
+        ("BPM", f"{lo:g}-{hi:g} (preferred {profile.bpm_preferred:g}, drift up to "
+                f"{profile.max_tempo_drift_bpm:g})"),
+        ("Keys", f"minor {profile.key_mode_preference.minor:g} / major "
+                 f"{profile.key_mode_preference.major:g}"),
+        ("Key moves", ", ".join(f"{k.value} {v:g}" for k, v in profile.allowed_key_moves.items())),
+        ("Energy curve", str(profile.energy_curve)),
+        ("Genres", ", ".join(f"{g} {w:g}" for g, w in profile.genre_weights.items())),
+        ("Vocal share", f"{profile.vocal_density:g}"),
+        ("Blend lengths", ", ".join(
+            f"{b} bars {p:g}" for b, p in profile.transition_length_bars.items())),
+        ("Transitions", ", ".join(f"{t} {p:g}" for t, p in profile.transition_type_mix.items())),
+        ("Artists", ", ".join(profile.reference_artists)),
+        ("Labels", ", ".join(profile.reference_labels)),
+        ("Notes", profile.notes),
+        ("Sources", "; ".join(profile.sources)),
+    ]  # fmt: skip
+    table = Table(show_header=False, pad_edge=False, box=None)
+    table.add_column(style="bold")
+    table.add_column(overflow="fold")
+    for label, value in rows:
+        if value:
+            table.add_row(label, value)
+    out.print(table)
+
+
+@styles_app.command("copy")
+def styles_copy(
+    name: Annotated[str, typer.Argument(help="Profile to copy.")],
+    new_name: Annotated[
+        str | None, typer.Argument(help="Key for the copy (default: same as the original).")
+    ] = None,
+    force: Annotated[bool, typer.Option(help="Replace an existing profile file.")] = False,
+) -> None:
+    """Copy a profile into your styles folder to edit it. Same-named copies override built-ins."""
+    entries = {e.key: e for e in list_styles()}
+    source = entries.get(name)
+    if source is None:
+        raise typer.BadParameter(
+            f"no style profile named {name!r} (available: {', '.join(entries) or 'none'})",
+            param_hint="NAME",
+        )
+    target = user_styles_dir() / f"{new_name or name}.json"
+    if target.exists() and not force:
+        err.print(f"[red]{target} already exists.[/red] Edit it, or pass --force to replace it.")
+        raise typer.Exit(EXIT_LOAD_ERROR)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(source.path.read_text(encoding="utf-8"), encoding="utf-8")
+    out.print(f"Copied to [bold]{target}[/bold]. Edit it, then use --style {target.stem}.")
+
+
+# ---------------------------------------------------------------- rekordbox master.db
+
+rekordbox_app = typer.Typer(
+    help="Optional, read-only: import My Tags and play history from a copy of Rekordbox's "
+    "master.db. Back up your library first (Rekordbox: File > Library > Backup Library).",
+    no_args_is_help=True,
+)
+app.add_typer(rekordbox_app, name="rekordbox")
+
+BACKUP_WARNING = (
+    "Setsmith reads a copy of master.db and never writes to your library, but back it up "
+    "first anyway: in Rekordbox, File > Library > Backup Library. Then re-run with --backed-up."
+)
+
+
+@rekordbox_app.command("import")
+def rekordbox_import(
+    master_db: Annotated[
+        Path | None,
+        typer.Option(
+            "--master-db",
+            dir_okay=False,
+            help="Path to master.db (default: Rekordbox's standard location).",
+        ),
+    ] = None,
+    key: Annotated[
+        str | None,
+        typer.Option(
+            "--key",
+            envvar=KEY_ENV,
+            show_envvar=True,
+            help="master.db key. You supply it; Setsmith never fetches one.",
+        ),
+    ] = None,
+    backed_up: Annotated[
+        bool,
+        typer.Option("--backed-up", help="Confirm you have backed up your Rekordbox library."),
+    ] = False,
+    db: DbOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Copy master.db, read My Tags and history from the copy, and store them in Setsmith.
+
+    Your live master.db is only copied, never opened. The copy goes into Setsmith's data
+    folder (the newest few are kept). A new import replaces the previous one.
+    """
+    if not has_module("pyrekordbox"):
+        err.print("[red]This needs the rekordbox extra:[/red] uv sync --extra rekordbox")
+        raise typer.Exit(EXIT_LOAD_ERROR)
+    if not backed_up:
+        err.print(f"[yellow]{BACKUP_WARNING}[/yellow]")
+        raise typer.Exit(EXIT_TRACK_NOT_FOUND)
+    source = master_db or default_master_db()
+    if source is None:
+        raise typer.BadParameter("master.db not found; pass its path", param_hint="--master-db")
+    if not key:
+        raise typer.BadParameter(
+            f"give the master.db key with --key or ${KEY_ENV}", param_hint="--key"
+        )
+    running = rekordbox_running()
+    if running and not as_json:
+        err.print(
+            "[yellow]Rekordbox is running; the copy may miss its latest changes. "
+            "Quit Rekordbox for a clean snapshot.[/yellow]"
+        )
+
+    db_path = db or default_db_path()
+    copies_dir = db_path.parent / "rekordbox-copies"
+    try:
+        copy = copy_master_db(source, copies_dir, DEFAULT_CONFIG.rekordbox_db.keep_copies)
+        data = read_master_db(copy, key)
+    except RekordboxDbError as exc:
+        err.print(f"[red]Import failed:[/red] {exc}")
+        raise typer.Exit(EXIT_LOAD_ERROR) from exc
+    with Store(db_path) as store:
+        store.save_rekordbox_data(data, str(source))
+
+    tag_counts = Counter(t for tags in data.my_tags.values() for t in tags)
+    if as_json:
+        _emit_json(
+            {
+                "source": str(source),
+                "copy": str(copy),
+                "rekordbox_running": running,
+                "tracks": data.content_count,
+                "tracks_tagged": len(data.my_tags),
+                "my_tags": dict(tag_counts.most_common()),
+                "sessions": len(data.sessions),
+            }
+        )
+        return
+    out.print(f"Read a copy of {source} ({data.content_count} tracks).")
+    out.print(f"My Tags on {len(data.my_tags)} tracks; {len(data.sessions)} history sessions.")
+    if tag_counts:
+        top = ", ".join(f"{t} ({c})" for t, c in tag_counts.most_common(10))
+        out.print(f"[bold]Top tags[/bold]  {top}", highlight=False)
+    out.print(
+        "[dim]suggest, build and info now use My Tags (vocal/instrumental tags set the vocal "
+        "flag); build --tag filters by them.[/dim]"
+    )
+
+
+@rekordbox_app.command("status")
+def rekordbox_status(db: DbOpt = None, as_json: JsonOpt = False) -> None:
+    """Show what was imported from master.db, and when."""
+    db_path = db or default_db_path()
+    info = None
+    if db_path.exists():
+        with Store(db_path) as store:
+            info = store.rekordbox_import_info()
+    if as_json:
+        _emit_json(info)
+        return
+    if info is None:
+        out.print("Nothing imported yet. See: setsmith rekordbox import --help")
+        return
+    out.print(
+        f"Imported {info['imported_at']} from {info['source']}: {info['tracks_tagged']} tagged "
+        f"tracks, {info['sessions']} history sessions.",
+        highlight=False,
+    )
 
 
 # ---------------------------------------------------------------- feedback

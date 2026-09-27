@@ -18,8 +18,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from setsmith.analysis.audio import TrackAnalysis
+    from setsmith.io.rekordbox_db import HistorySession, RekordboxDbData
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -38,6 +39,18 @@ CREATE TABLE IF NOT EXISTS analysis (
     version INTEGER NOT NULL,
     data TEXT NOT NULL,
     PRIMARY KEY (path, mtime, size, version)
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS rb_my_tags (
+    path TEXT PRIMARY KEY,
+    tags TEXT NOT NULL
+) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS rb_history (
+    session_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    date TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    PRIMARY KEY (session_id, position)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS feedback (
     id INTEGER PRIMARY KEY,
@@ -201,6 +214,60 @@ class Store:
 
     def count_analyses(self) -> int:
         return int(self._conn.execute("SELECT COUNT(*) FROM analysis").fetchone()[0])
+
+    # ------------------------------------------------------------ Rekordbox master.db
+
+    def save_rekordbox_data(self, data: RekordboxDbData, source: str) -> None:
+        """Replace previously imported My Tags and history with a fresh import."""
+        with self._conn:
+            self._conn.execute("DELETE FROM rb_my_tags")
+            self._conn.execute("DELETE FROM rb_history")
+            self._conn.executemany(
+                "INSERT INTO rb_my_tags VALUES (?, ?)",
+                ((path, json.dumps(tags)) for path, tags in data.my_tags.items()),
+            )
+            self._conn.executemany(
+                "INSERT INTO rb_history VALUES (?, ?, ?, ?, ?)",
+                (
+                    (s.id, s.name, s.date, i, path)
+                    for s in data.sessions
+                    for i, path in enumerate(s.paths)
+                ),
+            )
+            info = {
+                "imported_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                "source": source,
+                "tracks_tagged": len(data.my_tags),
+                "sessions": len(data.sessions),
+                "content_count": data.content_count,
+            }
+            self._conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('rekordbox_import', ?)",
+                (json.dumps(info),),
+            )
+
+    def rekordbox_import_info(self) -> dict[str, Any] | None:
+        row = self._conn.execute("SELECT value FROM meta WHERE key = 'rekordbox_import'").fetchone()
+        return dict(json.loads(row[0])) if row else None
+
+    def load_my_tags(self) -> dict[str, list[str]]:
+        return {
+            path: list(json.loads(tags))
+            for path, tags in self._conn.execute("SELECT path, tags FROM rb_my_tags")
+        }
+
+    def load_history(self) -> list[HistorySession]:
+        from setsmith.io.rekordbox_db import HistorySession
+
+        sessions: dict[str, HistorySession] = {}
+        rows = self._conn.execute(
+            "SELECT session_id, name, date, path FROM rb_history "
+            "ORDER BY date, session_id, position"
+        )
+        for session_id, name, date, path in rows:
+            session = sessions.setdefault(session_id, HistorySession(session_id, name, date, []))
+            session.paths.append(path)
+        return list(sessions.values())
 
     # ------------------------------------------------------------ feedback
 

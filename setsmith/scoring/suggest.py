@@ -4,17 +4,22 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from setsmith.model.collection import Collection
 from setsmith.model.track import Track
 from setsmith.scoring.transition import TransitionScore, score_transition
 from setsmith.scoring.weights import DEFAULT_CONFIG, ScoringConfig
 
+if TYPE_CHECKING:
+    from setsmith.styles.profile import StyleFit, StyleProfile
+
 
 @dataclass(frozen=True, slots=True)
 class Suggestion:
     track: Track
     score: TransitionScore
+    style_fit: StyleFit | None = None  # shown alongside, not added to the transition score
 
 
 def suggest_next(
@@ -25,6 +30,7 @@ def suggest_next(
     energy_target: float | None = None,
     exclude_ids: Iterable[str] = (),
     cfg: ScoringConfig = DEFAULT_CONFIG,
+    style: StyleProfile | None = None,
 ) -> list[Suggestion]:
     """Top `top` tracks to play after `seed`, best first.
 
@@ -38,8 +44,9 @@ def suggest_next(
             continue
         if track.title and collection.normalized_names(track) == seed_song:
             continue
-        results.append(
-            Suggestion(track, score_transition(seed, track, energy_target=energy_target, cfg=cfg))
-        )
+        score = score_transition(seed, track, energy_target=energy_target, cfg=cfg, style=style)
+        results.append(Suggestion(track, score))
     results.sort(key=lambda s: (-s.score.total, s.track.display, s.track.id))
-    return results[:top]
+    if style is None:
+        return results[:top]
+    return [Suggestion(s.track, s.score, style.style_fit(s.track, cfg)) for s in results[:top]]

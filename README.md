@@ -4,7 +4,7 @@ Setsmith is a transition-aware DJ set builder for Rekordbox. It reads your Rekor
 
 Setsmith only reads your data. It never modifies your Rekordbox database or your audio files.
 
-**Status: Phase 3 (suggestions, set building, Rekordbox export, listening feedback, local audio analysis).** Style profiles arrive in Phase 4.
+**Status: Phase 4 (suggestions, set building, Rekordbox export, listening feedback, local audio analysis, DJ style profiles).** Live-set analysis arrives in Phase 5.
 
 ## Setup
 
@@ -163,6 +163,8 @@ Wrote 'Friday opener', 'Friday opener (alternates)' to setsmith.xml.
 - `--bpm-min` / `--bpm-max` limit the tempo range.
 - `--genre` limits genres. Repeat it for several; spellings are normalized, so `afro-house` matches `Afro House`.
 - `--exclude` leaves out a TrackID or `"Artist - Title"`. Repeat it for several.
+- `--tag` keeps only tracks with a given Rekordbox My Tag (after `setsmith rekordbox import`).
+- `--style` applies a DJ style profile (see [`styles`](#styles-dj-style-profiles)).
 - `--artist-gap 4` sets how many tracks must pass before an artist repeats (the default is 4; `0` turns the rule off).
 
 **Output:**
@@ -173,6 +175,61 @@ Wrote 'Friday opener', 'Friday opener (alternates)' to setsmith.xml.
 - `--json` prints everything for scripting.
 
 Pair scores are cached in SQLite, so rebuilding from the same library is faster (see [Data Setsmith stores](#data-setsmith-stores)).
+
+### `styles`: DJ style profiles
+
+```bash
+uv run setsmith styles list
+uv run setsmith styles show keinemusik
+uv run setsmith build ~/Music/rekordbox.xml --minutes 90 --style keinemusik
+uv run setsmith suggest ~/Music/rekordbox.xml -t "Artist - Title" --style franky_rizardo --explain
+```
+
+A style profile is a small JSON file describing a DJ style's musical parameters: BPM band, preferred key modes and key moves, genre weights, energy curve, vocal share, and typical transition lengths and types. Three are built in, **inspired by** Keinemusik, Brunello and Franky Rizardo. They are starting points written from public track metadata and press descriptions, not measured from real sets, and they imply no endorsement by the artists. Phase 5 will derive profiles from sets you analyze.
+
+What a style changes:
+
+| Profile field | Effect |
+|---|---|
+| `bpm_band` | `build`: a hard limit, unless you pass `--bpm-min`/`--bpm-max` (each replaces its side). Style fit: 1.0 inside, falling to 0 at 4 BPM outside. |
+| `bpm_preferred` | `build`: breaks ties when choosing the opening track. |
+| `max_tempo_drift_bpm` | `build`: tempo range allowed before the drift penalty (`--max-drift` overrides). |
+| `energy_curve` | `build`: the default `--curve`. |
+| `allowed_key_moves` | Blended 50/50 into the harmonic score. A move the profile doesn't list counts as 0. |
+| `genre_weights` | Blended 50/50 into the genre score, using the incoming track's genre. Genres the profile doesn't list count as 0.2. |
+| `key_mode_preference`, `vocal_density` | Part of style fit. |
+| `transition_length_bars` | A 64-bar share of 0.25 or more makes long blends 64 bars instead of 32. |
+| `transition_type_mix` | Chooses between cut and echo out when a pair can't be blended. `build` reports the set's actual mix next to the profile's. |
+| `reference_artists`, `reference_labels`, `notes`, `sources` | Documentation only. |
+
+**Style fit** is a weighted average of BPM band (0.35), genre weight (0.35), key mode (0.2) and vocal share (0.1), using whichever parts are known for the track. In `build`, each step earns style fit × 15 points. In `suggest`, the fit is shown in its own column but not added to the transition score.
+
+Vocal information comes from metadata for now: whole words like "vocal" or "vox" versus "dub" or "instrumental" in the title, the Mix field or Comments. Contradictory or missing words mean unknown, and unknown parts are left out of style fit.
+
+**Your own profiles.** `setsmith styles copy keinemusik my_style` copies a profile into `~/.config/setsmith/styles/` (or `$SETSMITH_STYLES_DIR`), where you can edit it. A file there with the same name as a built-in replaces it. `--style` also takes a path to any `.json` file. Profiles are validated on load: mixes must sum to 1 and weights must be between 0 and 1. `styles list` flags broken files.
+
+### `rekordbox`: import My Tags and history from master.db (optional)
+
+```bash
+uv sync --extra rekordbox          # plus your other extras
+export SETSMITH_REKORDBOX_KEY=...   # your master.db key; Setsmith never fetches one
+uv run setsmith rekordbox import --backed-up
+uv run setsmith rekordbox status
+```
+
+Rekordbox keeps My Tags and play history in its own database (`master.db`), not in the XML export. This command reads them through [pyrekordbox](https://github.com/dylanljones/pyrekordbox), with these safeguards:
+
+- **Back up first.** In Rekordbox, choose File > Library > Backup Library. The command refuses to run without `--backed-up`.
+- **Setsmith never opens your live database.** It copies `master.db` (and its `-wal`/`-shm` files) into its own data folder (`rekordbox-copies/` next to the Setsmith database, newest 3 kept) and reads only the copy. It never commits anything, even to the copy.
+- **You supply the key.** Rekordbox 6/7 encrypt `master.db`. Pass the key with `--key` or `$SETSMITH_REKORDBOX_KEY`. Setsmith never downloads a key and never uses the key pyrekordbox bundles. Reading the encrypted database may fall outside AlphaTheta's terms; that is your call.
+- **Quit Rekordbox first** for a clean snapshot. The command warns you if Rekordbox is running.
+
+What it imports, matched to your XML tracks by file path:
+
+- **My Tags** as "Category: Tag". A My Tag named "Vocal" or "Instrumental" (or "Dub") sets the track's vocal flag and overrides guesses from titles and comments. `build --tag Opener` (repeatable) keeps only tracks with any of the given tags. `info` shows tag coverage.
+- **History sessions** (each played playlist, in order) are stored for Phase 5, which will learn your key-move and tempo habits from them.
+
+A new import replaces the previous one.
 
 ### `feedback`: log how transitions sounded on real decks
 
@@ -235,6 +292,8 @@ Setsmith reads Camelot (`8A`), Open Key (`1m`), and classic notation (`Am`, `F#m
 | Tempo range over the set grows beyond 8 BPM | −20 |
 | Tempo drops more than 3 BPM while the curve rises | −10 |
 
+With `--style`, each step also earns style fit × 15 points (see [`styles`](#styles-dj-style-profiles)).
+
 The same song is never used twice, even when your collection holds duplicate entries of it. Half- and double-time tracks are folded into the opening track's tempo range before drift is measured.
 
 4. **Alternates.** For each position, Setsmith picks the two best unused tracks that fit both neighbors and stay within 2 energy points of the curve.
@@ -243,7 +302,7 @@ All of these numbers live in `SetConfig` and `CurveTemplate` in [`setsmith/scori
 
 ## Data Setsmith stores
 
-`analyze` (analysis results), `build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Commands that only read (`suggest`, `info`) never create the file. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
+`analyze` (analysis results), `rekordbox import` (My Tags, history), `build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Commands that only read (`suggest`, `info`) never create the file. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
 
 ## Importing sets into Rekordbox
 
@@ -258,7 +317,7 @@ The exported file copies every track entry exactly as it appears in your export:
 ## Development
 
 ```bash
-uv sync --extra audio --extra essentia   # the audio tests skip themselves without these
+uv sync --extra audio --extra essentia --extra rekordbox   # those tests skip without these
 uv run pytest                  # all tests, including performance and audio tests
 uv run pytest -m "not perf and not audio"   # fast core tests
 uv run ruff check . && uv run ruff format --check .
@@ -273,4 +332,5 @@ Test fixtures use made-up artists and titles. Audio tests analyze tracks synthes
 - Read-only access to your library. Output always goes to new files: Setsmith never writes to its input and only replaces files it created itself (or any file with `--force`).
 - No Spotify Web API audio features, which are unavailable to new apps since 27 November 2024. No scraping of 1001Tracklists. No downloading from streaming platforms. Only local files you provide are analyzed.
 - Only derived features are stored. Audio and full tracklists are never redistributed. Audio files are opened read-only and never copied.
-- Style profiles (Phase 4) describe musical parameters in our own words. They are labeled "inspired by" and do not imply endorsement by any artist.
+- Style profiles describe musical parameters in our own words. They are labeled "inspired by" and do not imply endorsement by any artist.
+- Rekordbox's own database is only ever read by copying it, behind `--backed-up`, with a key you supply.
