@@ -1668,6 +1668,24 @@ class Service(StrEnum):
     GETSONGBPM = "getsongbpm"
 
 
+def _read_clipboard() -> str:
+    """Clipboard text via pbpaste; never printed."""
+    import shutil
+    import subprocess
+
+    if shutil.which("pbpaste") is None:
+        raise typer.BadParameter(
+            "--from-clipboard needs macOS (pbpaste)", param_hint="--from-clipboard"
+        )
+    text = subprocess.run(["pbpaste"], capture_output=True, text=True, check=False).stdout.strip()
+    if not text or len(text.split()) != 1:
+        raise typer.BadParameter(
+            "the clipboard does not hold a single key; copy just the key and try again",
+            param_hint="--from-clipboard",
+        )
+    return text
+
+
 @keys_app.command("set")
 def keys_set(
     service: Annotated[Service, typer.Argument(help="lastfm or getsongbpm")],
@@ -1675,8 +1693,17 @@ def keys_set(
         str | None,
         typer.Argument(help="Your API key. Leave it out to paste it at a hidden prompt."),
     ] = None,
+    from_clipboard: Annotated[
+        bool,
+        typer.Option(
+            "--from-clipboard",
+            help="Read the key from the clipboard (macOS): copy it, then run this.",
+        ),
+    ] = False,
 ) -> None:
     """Save an API key (an environment variable with the same purpose takes precedence)."""
+    if from_clipboard:
+        key = _read_clipboard()
     if key is None:
         key = typer.prompt(f"Paste your {service.value} API key (hidden)", hide_input=True)
     value = key.strip()

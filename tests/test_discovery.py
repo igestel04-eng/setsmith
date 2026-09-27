@@ -82,16 +82,16 @@ LASTFM = {
 
 GETSONGBPM = {
     # Lanterns: the search hit lacks tempo, so the client follows up with /song/.
-    "search/:song:lanterns artist:moana reyes": {
+    "search/:lanterns": {
         "search": [{"id": "L1", "title": "Lanterns", "artist": {"name": "Moana Reyes"}}]
     },
     "song/": {"song": {"id": "L1", "title": "Lanterns", "tempo": "123", "key_of": "Em",
                        "open_key": "2m", "uri": "https://getsongbpm.com/song/lanterns/L1"}},
-    "search/:song:night tide artist:ines okafor": {
+    "search/:night tide": {
         "search": [{"id": "N1", "title": "Night Tide", "artist": {"name": "Ines Okafor"},
                     "tempo": "140", "key_of": "C#m"}]
     },
-    "search/:song:velvet drift artist:tomas lind": {
+    "search/:velvet drift": {
         "search": [{"id": "V1", "title": "Something Else", "artist": {"name": "Other"},
                     "tempo": "122"}]
     },
@@ -406,3 +406,37 @@ def test_nested_feat_and_fullwidth_separators(
     artist: str, title: str, artists: set[str], clean: str
 ) -> None:
     assert identity(artist, title) == (frozenset(artists), clean)
+
+
+def test_cli_keys_from_clipboard(isolated_keys: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+    import subprocess
+
+    class Done:
+        def __init__(self, out: str) -> None:
+            self.stdout = out
+
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pbpaste")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Done("  clipkey123\n"))
+    result = runner.invoke(cli.app, ["keys", "set", "getsongbpm", "--from-clipboard"])
+    assert result.exit_code == 0 and "clipkey123" not in result.output
+    assert keys.get_key("getsongbpm") == "clipkey123"
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Done("two words"))
+    bad = runner.invoke(cli.app, ["keys", "set", "getsongbpm", "--from-clipboard"])
+    assert bad.exit_code == 2 and "clipboard" in bad.output
+    assert keys.get_key("getsongbpm") == "clipkey123"  # unchanged
+
+
+def test_getsongbpm_band_name_variants() -> None:
+    client = FakeClient({"search/:innerbloom": {"search": [
+        {"id": "I1", "title": "Innerbloom", "artist": {"name": "RÜFÜS"}, "tempo": "122",
+         "open_key": "11m"},
+        {"id": "I2", "title": "Innerbloom", "artist": {"name": "THE SOUND BEE HD"}, "tempo": "138"},
+    ]}, "search/:yamore": {"search": [
+        {"id": "Y1", "title": "Yamore", "artist": {"name": "Salif Keita"}, "tempo": "160"},
+    ]}})  # fmt: skip
+    bpm = GetSongBpm(client, "k")  # type: ignore[arg-type]
+    innerbloom = bpm.lookup("RÜFÜS DU SOL", "Innerbloom")
+    assert innerbloom is not None and innerbloom.bpm == 122.0  # older band name accepted
+    assert bpm.lookup("MoBlack", "Yamore") is None  # a different artist's recording
+    assert client.calls[0][1] == {"api_key": "k", "type": "song", "lookup": "innerbloom"}
