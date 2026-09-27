@@ -29,9 +29,9 @@ def _add(out: FloatArray, start_s: float, sound: FloatArray, sr: int) -> None:
         out[i:j] += sound[: j - i]
 
 
-def _kick(sr: int) -> FloatArray:
+def _kick(sr: int, base_hz: float = 50.0) -> FloatArray:
     t = np.arange(int(0.25 * sr)) / sr
-    freq = 50 + 70 * np.exp(-t * 30)
+    freq = base_hz + 70 * np.exp(-t * 30)
     phase = 2 * np.pi * np.cumsum(freq) / sr
     return np.asarray(0.9 * np.sin(phase) * np.exp(-t * 12), dtype=np.float64)
 
@@ -60,6 +60,9 @@ def render_track(
     gain: float = 1.0,
     busy: bool = True,
     seed: int = 0,
+    transpose: int = 0,
+    kick_hz: float = 50.0,
+    sixteenth_hats: bool = False,
 ) -> float:
     """Write a WAV and return its duration in seconds.
 
@@ -71,7 +74,7 @@ def render_track(
     bars = intro_bars + main_bars + outro_bars
     duration = bars * 4 * beat + 1.0
     out = np.zeros(int(duration * sr))
-    kick, hat = _kick(sr), _hat(sr, rng)
+    kick, hat = _kick(sr, kick_hz), _hat(sr, rng)
 
     for bar in range(bars):
         in_main = intro_bars <= bar < intro_bars + main_bars
@@ -79,17 +82,53 @@ def render_track(
         bar_start = bar * 4 * beat
         if in_main:
             for note in A_MINOR_PROGRESSION[chord_i]:
-                _add(out, bar_start, _tone(note, 4 * beat, sr, 0.06), sr)
+                _add(out, bar_start, _tone(note + transpose, 4 * beat, sr, 0.06), sr)
         for b in range(4):
             t = bar_start + b * beat
             if busy or b % 2 == 0:
                 _add(out, t, kick, sr)
             if busy:
                 _add(out, t + beat / 2, hat, sr)
+                if sixteenth_hats:
+                    _add(out, t + beat / 4, 0.6 * hat, sr)
+                    _add(out, t + 3 * beat / 4, 0.6 * hat, sr)
             if in_main:
-                _add(out, t + beat / 2, _tone(A_MINOR_BASS[chord_i], beat / 2, sr, 0.35, 2), sr)
+                bass = A_MINOR_BASS[chord_i] + transpose
+                _add(out, t + beat / 2, _tone(bass, beat / 2, sr, 0.35, 2), sr)
 
     out *= gain / max(1e-9, float(np.max(np.abs(out))))
     out *= 0.9
     sf.write(path, out.astype(np.float32), sr, subtype="PCM_16")
     return duration
+
+
+def crossfade_mix(
+    path: Path,
+    parts: list[tuple[Path, float, float, float]],
+    *,
+    sr: int = 22050,
+) -> float:
+    """Write a DJ-style mix. parts: (file, mix start s, original start s, seconds played).
+    Overlapping parts crossfade linearly. Returns the mix length in seconds."""
+    end = max(start + length for _, start, _, length in parts)
+    out = np.zeros(int(end * sr) + 1)
+    for i, (src, start, orig, length) in enumerate(parts):
+        audio, file_sr = sf.read(src, dtype="float64")
+        assert file_sr == sr
+        piece = audio[int(orig * sr) : int((orig + length) * sr)]
+        gain = np.ones(len(piece))
+        if i > 0:  # fade in over the overlap with the previous part
+            _, prev_start, _, prev_len = parts[i - 1]
+            overlap = max(0.0, prev_start + prev_len - start)
+            n = int(overlap * sr)
+            gain[:n] = np.linspace(0, 1, n)
+        if i + 1 < len(parts):  # fade out over the overlap with the next part
+            nxt_start = parts[i + 1][1]
+            overlap = max(0.0, start + length - nxt_start)
+            n = int(overlap * sr)
+            if n:
+                gain[-n:] *= np.linspace(1, 0, n)
+        _add(out, start, piece * gain, sr)
+    out *= 0.9 / max(1e-9, float(np.max(np.abs(out))))
+    sf.write(path, out.astype(np.float32), sr, subtype="PCM_16")
+    return end

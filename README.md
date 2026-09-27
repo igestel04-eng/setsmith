@@ -4,7 +4,7 @@ Setsmith is a transition-aware DJ set builder for Rekordbox. It reads your Rekor
 
 Setsmith only reads your data. It never modifies your Rekordbox database or your audio files.
 
-**Status: Phase 4 (suggestions, set building, Rekordbox export, listening feedback, local audio analysis, DJ style profiles).** Live-set analysis arrives in Phase 5.
+**Status: Phase 5 (suggestions, set building, Rekordbox export, listening feedback, local audio analysis, DJ style profiles, live-set analysis, learned preferences).** A local web UI is the optional Phase 6.
 
 ## Setup
 
@@ -231,6 +231,45 @@ What it imports, matched to your XML tracks by file path:
 
 A new import replaces the previous one.
 
+### `liveset`: learn from sets you played or admire
+
+```bash
+uv run setsmith liveset analyze ~/Music/rekordbox.xml friday.txt                      # tracklist only
+uv run setsmith liveset analyze ~/Music/rekordbox.xml friday.txt --audio friday.mp3   # + recording
+uv run setsmith liveset analyze ~/Music/rekordbox.xml friday.txt --audio friday.mp3 --save-profile my_fridays
+uv run setsmith liveset list
+uv run setsmith liveset show 1
+uv run setsmith liveset profile 1 --save-profile my_fridays
+```
+
+You supply the inputs: a **tracklist** you paste into a text file, and optionally a **recording** of the set that you are entitled to analyze. Setsmith never scrapes tracklist sites or downloads audio.
+
+Tracklist lines can look like `01. Artist - Title`, `[00:06:10] Artist – Title [Label]`, `1:02:33 Artist - Title`, `w/ Artist - Title` (layered with the previous track) or `ID - ID` (unidentified). A CSV with Artist/Title(/Time) columns also works. Each line is fuzzy-matched to your collection; version labels such as "(Original Mix)" or "(Extended Mix)" are ignored, but remix names still count. Lines that don't match are listed.
+
+What you get depends on what you provide:
+
+| Input | Result |
+|---|---|
+| Tracklist | Key moves and tempo changes between consecutive tracks (from your tags), genre mix, energy order. |
+| + recording | Tempo, key and loudness every 30 seconds. Transition points come from the tracklist timestamps, or from novelty detection if there are none; either way they are marked approximate. |
+| + your original files for the matched tracks | Each original is aligned to the recording with beat-synchronous chroma + MFCC features and subsequence DTW (after Kim et al., ISMIR 2020), which finds where it plays and from which point of the original. Setsmith then estimates each track's gain beat by beat (non-negative least squares on mel spectra) and extrapolates the fades, so each transition gets a **cue-out**, a **cue-in** and an **overlap length in bars**. |
+
+The recording is read in 30-second blocks straight from disk (WAV, FLAC or MP3). It is never copied, and only the derived numbers are stored. On this machine a 30-minute MP3 takes about 13s to read, and aligning each track takes well under a second.
+
+Each analysis ends with a **draft style profile**: BPM band from the 10th–90th percentile of track tempos, key-move weights from how often each move occurs (with add-one smoothing), energy curve from the recording's loudness or the tracks' energies, genre weights, vocal share, and transition lengths and types from the measured overlaps. It is printed for you to review. Save it with `--save-profile NAME`, edit it in your styles folder, and use it with `--style NAME`. When nothing was measured (no recording or no original files), transition lengths and types fall back to neutral defaults, and the profile's notes say so.
+
+Limits: transition types are estimated from overlap length alone (long blend ≥ 16 bars, filter sweep ≥ 4, otherwise cut), so echo outs and drop swaps aren't told apart. Alignment was verified on synthesized mixes with known answers (overlaps within about a bar), not yet on real recordings. Two tracks built on identical loops are hard to tell apart. Tempo-stretched playback is supported in principle by the beat-synchronous features but hasn't been tested.
+
+### `learn`: fold your own habits into the weights
+
+```bash
+uv run setsmith learn ~/Music/rekordbox.xml
+uv run setsmith suggest ~/Music/rekordbox.xml -t "Artist - Title" --learned
+uv run setsmith build ~/Music/rekordbox.xml --minutes 90 --learned
+```
+
+`learn` counts how often you make each Camelot move and each size of tempo change. It uses consecutive tracks in your Rekordbox history sessions (after `setsmith rekordbox import`) and transitions in analyzed live sets. It then shows defaults next to learned values. A learned value is a move's frequency relative to your most frequent move, blended with the default using weight n / (n + prior). The default prior is 50, so 10 transitions shift the scores a little and 500 mostly replace them. `--prior` changes that. The learned weights apply only when you pass `--learned`, and the pair-score cache keeps them separate from the defaults.
+
 ### `feedback`: log how transitions sounded on real decks
 
 ```bash
@@ -302,7 +341,7 @@ All of these numbers live in `SetConfig` and `CurveTemplate` in [`setsmith/scori
 
 ## Data Setsmith stores
 
-`analyze` (analysis results), `rekordbox import` (My Tags, history), `build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Commands that only read (`suggest`, `info`) never create the file. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
+`analyze` (analysis results), `rekordbox import` (My Tags, history), `liveset` (analyzed sets), `learn` (learned weights), `build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Commands that only read (`suggest`, `info`) never create the file. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
 
 ## Importing sets into Rekordbox
 
@@ -330,7 +369,7 @@ Test fixtures use made-up artists and titles. Audio tests analyze tracks synthes
 ## Guardrails
 
 - Read-only access to your library. Output always goes to new files: Setsmith never writes to its input and only replaces files it created itself (or any file with `--force`).
-- No Spotify Web API audio features, which are unavailable to new apps since 27 November 2024. No scraping of 1001Tracklists. No downloading from streaming platforms. Only local files you provide are analyzed.
+- No Spotify Web API audio features, which are unavailable to new apps since 27 November 2024. No scraping of 1001Tracklists: tracklists are pasted by you, and `TracklistProvider` in `setsmith/analysis/tracklist.py` is the extension point for a licensed source. No downloading from streaming platforms. Only local files you provide are analyzed, including set recordings you are entitled to process. Audio fingerprinting services such as ACRCloud are not integrated; if added, they would run only with your own credentials.
 - Only derived features are stored. Audio and full tracklists are never redistributed. Audio files are opened read-only and never copied.
 - Style profiles describe musical parameters in our own words. They are labeled "inspired by" and do not imply endorsement by any artist.
 - Rekordbox's own database is only ever read by copying it, behind `--backed-up`, with a key you supply.

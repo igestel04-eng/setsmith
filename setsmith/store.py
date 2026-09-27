@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from setsmith.analysis.audio import TrackAnalysis
     from setsmith.io.rekordbox_db import HistorySession, RekordboxDbData
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -52,6 +52,12 @@ CREATE TABLE IF NOT EXISTS rb_history (
     path TEXT NOT NULL,
     PRIMARY KEY (session_id, position)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS livesets (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    data TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS feedback (
     id INTEGER PRIMARY KEY,
     created_at TEXT NOT NULL,
@@ -268,6 +274,43 @@ class Store:
             session = sessions.setdefault(session_id, HistorySession(session_id, name, date, []))
             session.paths.append(path)
         return list(sessions.values())
+
+    # ------------------------------------------------------------ live sets and learning
+
+    def save_liveset(self, data: dict[str, Any]) -> int:
+        with self._conn:
+            cur = self._conn.execute(
+                "INSERT INTO livesets (name, created_at, data) VALUES (?, ?, ?)",
+                (data["name"], data["created_at"], json.dumps(data)),
+            )
+        return int(cur.lastrowid or 0)
+
+    def list_livesets(self) -> list[tuple[int, str, str]]:
+        return [
+            (int(r[0]), str(r[1]), str(r[2]))
+            for r in self._conn.execute("SELECT id, name, created_at FROM livesets ORDER BY id")
+        ]
+
+    def get_liveset(self, liveset_id: int) -> dict[str, Any] | None:
+        row = self._conn.execute("SELECT data FROM livesets WHERE id = ?", (liveset_id,)).fetchone()
+        return dict(json.loads(row[0])) if row else None
+
+    def delete_liveset(self, liveset_id: int) -> bool:
+        with self._conn:
+            return (
+                self._conn.execute("DELETE FROM livesets WHERE id = ?", (liveset_id,)).rowcount > 0
+            )
+
+    def save_learned(self, data: dict[str, Any]) -> None:
+        with self._conn:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('learned', ?)",
+                (json.dumps(data),),
+            )
+
+    def load_learned(self) -> dict[str, Any] | None:
+        row = self._conn.execute("SELECT value FROM meta WHERE key = 'learned'").fetchone()
+        return dict(json.loads(row[0])) if row else None
 
     # ------------------------------------------------------------ feedback
 

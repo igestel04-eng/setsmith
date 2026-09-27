@@ -130,16 +130,16 @@ def _beats_per_bar(marker: TempoMarker, default: int) -> int:
         return default
 
 
-def bar_starts(
+def grid_beats(
     markers: Sequence[TempoMarker],
     duration_s: float,
     default_beats_per_bar: int = DEFAULT_CONFIG.analysis.default_beats_per_bar,
-) -> list[float]:
-    """Downbeat times from a Rekordbox beat grid, including bars before the first marker."""
+) -> list[tuple[float, int]]:
+    """(time, beat number in bar) for every beat of a Rekordbox grid, from 0s to the end."""
     ordered = sorted((m for m in markers if m.bpm > 0), key=lambda m: m.inizio_s)
     if not ordered:
         return []
-    starts: list[float] = []
+    beats: list[tuple[float, int]] = []
 
     first = ordered[0]
     bpb = _beats_per_bar(first, default_beats_per_bar)
@@ -147,10 +147,9 @@ def bar_starts(
     beat, k = first.battito, 1
     while first.inizio_s - k * spb >= 0:
         beat = (beat - 2) % bpb + 1  # the beat number one beat earlier
-        if beat == 1:
-            starts.append(first.inizio_s - k * spb)
+        beats.append((first.inizio_s - k * spb, beat))
         k += 1
-    starts.reverse()
+    beats.reverse()
 
     for i, marker in enumerate(ordered):
         end = ordered[i + 1].inizio_s if i + 1 < len(ordered) else duration_s
@@ -158,11 +157,19 @@ def bar_starts(
         spb = 60.0 / marker.bpm
         beat, k = marker.battito, 0
         while (t := marker.inizio_s + k * spb) < end - 1e-6:
-            if beat == 1:
-                starts.append(t)
+            beats.append((t, beat))
             beat = beat % bpb + 1
             k += 1
-    return starts
+    return beats
+
+
+def bar_starts(
+    markers: Sequence[TempoMarker],
+    duration_s: float,
+    default_beats_per_bar: int = DEFAULT_CONFIG.analysis.default_beats_per_bar,
+) -> list[float]:
+    """Downbeat times from a Rekordbox beat grid, including bars before the first marker."""
+    return [t for t, beat in grid_beats(markers, duration_s, default_beats_per_bar) if beat == 1]
 
 
 def percentile(values: Sequence[float], pct: float) -> float:

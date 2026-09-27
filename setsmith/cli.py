@@ -27,6 +27,16 @@ from setsmith.analysis.audio import (
     has_module,
     location_to_path,
 )
+from setsmith.analysis.learn import (
+    LearnedPreferences,
+    blended_config,
+    history_pairs,
+    learn,
+    move_table,
+    tempo_table,
+)
+from setsmith.analysis.liveset import LiveSet, analyze_liveset, compute_stats, draft_profile
+from setsmith.analysis.tracklist import load_tracklist, match_tracklist
 from setsmith.graph.build import config_key, track_fingerprint
 from setsmith.io.enrich import MyTagCoverage, apply_my_tags
 from setsmith.io.rekordbox_db import (
@@ -37,6 +47,7 @@ from setsmith.io.rekordbox_db import (
     read_master_db,
     rekordbox_running,
 )
+from setsmith.io.rekordbox_db import normalize_path as normalize_file_path
 from setsmith.io.rekordbox_xml import (
     ExportError,
     PlaylistSpec,
@@ -49,7 +60,7 @@ from setsmith.model.collection import Collection, NodeType
 from setsmith.model.track import Track
 from setsmith.scoring.suggest import Suggestion, suggest_next
 from setsmith.scoring.transition import TransitionType, score_transition
-from setsmith.scoring.weights import DEFAULT_CONFIG
+from setsmith.scoring.weights import DEFAULT_CONFIG, ScoringConfig
 from setsmith.sets.curves import parse_curve
 from setsmith.sets.generate import GeneratedSet, SetGenerationError, SetRequest, filter_pool
 from setsmith.sets.generate import generate_set as run_generation
@@ -96,6 +107,13 @@ JsonOpt = Annotated[bool, typer.Option("--json", help="Print machine-readable JS
 NoAnalysisOpt = Annotated[
     bool,
     typer.Option("--no-analysis", help="Ignore stored audio analysis; use Rekordbox tags only."),
+]
+LearnedOpt = Annotated[
+    bool,
+    typer.Option(
+        "--learned",
+        help="Use key-move and tempo weights learned from your own sets ('setsmith learn').",
+    ),
 ]
 StyleOpt = Annotated[
     str | None,
@@ -162,6 +180,22 @@ def _load_analyzed(
         if info.rekordbox:
             info.my_tags = apply_my_tags(col, store.load_my_tags())
     return col, info
+
+
+def _scoring_config(use_learned: bool, db: Path | None) -> ScoringConfig:
+    """Default weights, or weights blended with learned preferences when asked."""
+    if not use_learned:
+        return DEFAULT_CONFIG
+    db_path = db or default_db_path()
+    data = None
+    if db_path.exists():
+        with Store(db_path) as store:
+            data = store.load_learned()
+    if data is None:
+        raise typer.BadParameter(
+            "nothing learned yet; run 'setsmith learn <xml>' first", param_hint="--learned"
+        )
+    return blended_config(LearnedPreferences.from_dict(data))
 
 
 def _load_style_opt(name: str | None) -> StyleProfile | None:
@@ -344,6 +378,7 @@ def suggest(
         bool, typer.Option("--explain", "-x", help="Show the reason behind every component score.")
     ] = False,
     style: StyleOpt = None,
+    learned: LearnedOpt = False,
     db: DbOpt = None,
     no_analysis: NoAnalysisOpt = False,
     as_json: JsonOpt = False,
@@ -356,7 +391,8 @@ def suggest(
     profile = _load_style_opt(style)
     col, _ = _load_analyzed(collection, db, not no_analysis)
     seed = _resolve_seed(col, track, track_id, as_json)
-    results = suggest_next(col, seed, top=top, energy_target=energy_delta, style=profile)
+    cfg = _scoring_config(learned, db)
+    results = suggest_next(col, seed, top=top, energy_target=energy_delta, style=profile, cfg=cfg)
 
     if as_json:
         _emit_json(
@@ -565,6 +601,7 @@ def build(
         ),
     ] = None,
     style: StyleOpt = None,
+    learned: LearnedOpt = False,
     start: Annotated[
         str | None, typer.Option("--start", help='Opening track: "Artist - Title".')
     ] = None,
@@ -682,13 +719,14 @@ def build(
     )
 
     store = None if no_cache else Store(db)
-    cfg_key = config_key(DEFAULT_CONFIG, profile)
+    cfg = _scoring_config(learned, db)
+    cfg_key = config_key(cfg, profile)
     try:
         cache = None
         if store is not None:
-            pool, _ = filter_pool(col, request)
+            pool, _ = filter_pool(col, request, cfg)
             cache = store.load_pair_scores(cfg_key, {track_fingerprint(t) for t in pool})
-        generated, graph = run_generation(col, request, cache=cache)
+        generated, graph = run_generation(col, request, cfg=cfg, cache=cache)
         if store is not None:
             store.save_pair_scores(cfg_key, graph.new_scores)
     except SetGenerationError as exc:
@@ -1240,6 +1278,348 @@ def rekordbox_status(db: DbOpt = None, as_json: JsonOpt = False) -> None:
         f"tracks, {info['sessions']} history sessions.",
         highlight=False,
     )
+
+
+# ---------------------------------------------------------------- live sets
+
+liveset_app = typer.Typer(
+    help="Analyze DJ sets you supply (tracklist, optional recording) and draft style "
+    "profiles from them. Nothing is downloaded or scraped; only derived numbers are stored.",
+    no_args_is_help=True,
+)
+app.add_typer(liveset_app, name="liveset")
+
+
+def _mmss(seconds: float | None) -> str:
+    if seconds is None:
+        return "-"
+    minutes, secs = divmod(round(seconds), 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}:{minutes:02d}:{secs:02d}" if hours else f"{minutes}:{secs:02d}"
+
+
+def _print_liveset(ls: LiveSet, liveset_id: int | None) -> None:
+    stats = compute_stats(ls)
+    header = f"[bold]{ls.name}[/bold]" + (f"  [dim]#{liveset_id}[/dim]" if liveset_id else "")
+    out.print(header)
+    source = Path(ls.tracklist_source).name
+    audio = (
+        f", recording {Path(ls.audio_source).name} ({_mmss(ls.duration_s)})"
+        if ls.audio_source
+        else ""
+    )
+    out.print(
+        f"[dim]{len(ls.matches)} tracklist lines from {source}{audio}: {stats.matched} matched, "
+        f"{stats.unmatched} not in your collection, {stats.unknown} unidentified[/dim]",
+        highlight=False,
+    )
+    for warning in ls.warnings:
+        out.print(f"[yellow]warning:[/yellow] {warning}", highlight=False)
+    for m in ls.unmatched[: DEFAULT_CONFIG.display.max_warnings_shown]:
+        out.print(f"[yellow]not matched:[/yellow] {m.raw}", highlight=False)
+
+    table = Table(
+        "#", "From", "To", "Key move", "Tempo", "Overlap", "Cue out", "Cue in", pad_edge=False
+    )
+    names = {m.position: m.track_display or m.raw for m in ls.matches}
+    for t in ls.transitions:
+        overlap = f"{t.overlap_bars:g} bars" if t.overlap_bars is not None else "-"
+        tempo = f"{t.tempo_change_pct:.1f}%" if t.tempo_change_pct is not None else "-"
+        table.add_row(
+            str(t.from_position), names[t.from_position], names[t.to_position],
+            t.key_move or "-", tempo, overlap, _mmss(t.cue_out_s), _mmss(t.cue_in_s),
+        )  # fmt: skip
+    if ls.transitions:
+        out.print(table)
+    if stats.track_bpms:
+        out.print(f"[bold]Tempo[/bold]  {min(stats.track_bpms):g}-{max(stats.track_bpms):g} BPM")
+    if stats.key_moves:
+        moves = ", ".join(
+            f"{k} {v}" for k, v in sorted(stats.key_moves.items(), key=lambda kv: -kv[1])
+        )
+        out.print(f"[bold]Key moves[/bold]  {moves}")
+    if stats.transition_bars:
+        lengths = ", ".join(
+            f"{k} bars: {v}"
+            for k, v in sorted(stats.transition_bars.items(), key=lambda kv: int(kv[0]))
+        )
+        out.print(f"[bold]Transition lengths[/bold]  {lengths}")
+    if stats.genre_mix:
+        out.print(
+            f"[bold]Genres[/bold]  {', '.join(f'{g} {c}' for g, c in stats.genre_mix.items())}"
+        )
+
+
+def _save_profile(draft: dict[str, Any], key: str, force: bool) -> Path:
+    try:
+        StyleProfile.model_validate(draft)
+    except ValueError as exc:
+        err.print(f"[red]The drafted profile is not valid:[/red] {exc}")
+        raise typer.Exit(EXIT_BUILD_ERROR) from exc
+    target = user_styles_dir() / f"{key}.json"
+    if target.exists() and not force:
+        err.print(f"[red]{target} already exists.[/red] Pass --force to replace it.")
+        raise typer.Exit(EXIT_BUILD_ERROR)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(draft, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    return target
+
+
+SaveProfileOpt = Annotated[
+    str | None,
+    typer.Option(
+        "--save-profile",
+        help="Save the drafted style profile under this name in your styles folder.",
+    ),
+]
+
+
+@liveset_app.command("analyze")
+def liveset_analyze(
+    collection: CollectionArg,
+    tracklist: Annotated[
+        Path,
+        typer.Argument(
+            help="Tracklist: pasted text or CSV, one track per line.",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
+    audio: Annotated[
+        Path | None,
+        typer.Option(
+            "--audio",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="A recording of the set that you are entitled to analyze (WAV, FLAC, MP3).",
+        ),
+    ] = None,
+    name: Annotated[str | None, typer.Option(help="Name for this set.")] = None,
+    align: Annotated[
+        bool,
+        typer.Option(help="Align your original files to the recording to measure transitions."),
+    ] = True,
+    no_essentia: Annotated[
+        bool, typer.Option("--no-essentia", help="Use librosa for window keys.")
+    ] = False,
+    save_profile: SaveProfileOpt = None,
+    force: Annotated[bool, typer.Option(help="Replace an existing saved profile.")] = False,
+    db: DbOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Match a tracklist to your collection and measure the set; draft a style profile.
+
+    With --audio, the recording is read in 30-second blocks (never copied): tempo, key and
+    loudness per window, plus where each of your original files plays in it.
+    """
+    if audio is not None and not has_module("librosa"):
+        err.print("[red]Analyzing a recording needs the audio extra:[/red] uv sync --extra audio")
+        raise typer.Exit(EXIT_LOAD_ERROR)
+    col, _ = _load_analyzed(collection, db, use_analysis=True)
+    entries = load_tracklist(tracklist)
+    if not entries:
+        raise typer.BadParameter("no tracks found in the tracklist", param_hint="TRACKLIST")
+    matches = match_tracklist(col, entries)
+    set_name = name or tracklist.stem
+
+    def progress(message: str) -> None:
+        if not as_json:
+            status.update(f"[dim]{message}...[/dim]")
+
+    try:
+        with out.status("[dim]analyzing...[/dim]") as status:
+            ls = analyze_liveset(
+                set_name, str(tracklist), matches, audio=audio, align=align,
+                use_essentia=not no_essentia, on_progress=progress,
+            )  # fmt: skip
+    except AnalysisError as exc:
+        err.print(f"[red]Analysis failed:[/red] {exc}")
+        raise typer.Exit(EXIT_BUILD_ERROR) from exc
+
+    with Store(db) as store:
+        liveset_id = store.save_liveset(ls.to_dict())
+    draft = draft_profile(ls)
+    saved = _save_profile(draft, save_profile, force) if save_profile else None
+
+    if as_json:
+        _emit_json(
+            {
+                "id": liveset_id,
+                "liveset": ls.to_dict(),
+                "stats": compute_stats(ls).to_dict(),
+                "draft_profile": draft,
+                "saved_profile": str(saved) if saved else None,
+            }
+        )
+        return
+    _print_liveset(ls, liveset_id)
+    out.print("\n[bold]Draft style profile[/bold] [dim](edit before use)[/dim]")
+    out.print_json(json.dumps(draft, ensure_ascii=False))
+    if saved:
+        out.print(f"Saved to [bold]{saved}[/bold]; use it with --style {saved.stem}.")
+    else:
+        out.print(
+            "[dim]Save it with --save-profile NAME, or later: setsmith liveset profile "
+            f"{liveset_id} --save-profile NAME[/dim]"
+        )
+
+
+def _get_liveset(liveset_id: int, db: Path | None) -> LiveSet:
+    db_path = db or default_db_path()
+    data = None
+    if db_path.exists():
+        with Store(db_path) as store:
+            data = store.get_liveset(liveset_id)
+    if data is None:
+        err.print(f"[red]No stored live set #{liveset_id}.[/red] See: setsmith liveset list")
+        raise typer.Exit(EXIT_TRACK_NOT_FOUND)
+    return LiveSet.from_dict(data)
+
+
+@liveset_app.command("list")
+def liveset_list(db: DbOpt = None, as_json: JsonOpt = False) -> None:
+    """List analyzed live sets."""
+    db_path = db or default_db_path()
+    rows: list[tuple[int, str, str]] = []
+    if db_path.exists():
+        with Store(db_path) as store:
+            rows = store.list_livesets()
+    if as_json:
+        _emit_json([{"id": i, "name": n, "created_at": c} for i, n, c in rows])
+        return
+    if not rows:
+        out.print("No live sets analyzed yet. See: setsmith liveset analyze --help")
+        return
+    table = Table("#", "Name", "Analyzed", pad_edge=False)
+    for i, n, c in rows:
+        table.add_row(str(i), n, c[:16].replace("T", " "))
+    out.print(table)
+
+
+@liveset_app.command("show")
+def liveset_show(
+    liveset_id: Annotated[int, typer.Argument(help="Live set number from 'liveset list'.")],
+    db: DbOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Show a stored live set's transitions and statistics."""
+    ls = _get_liveset(liveset_id, db)
+    if as_json:
+        _emit_json({"liveset": ls.to_dict(), "stats": compute_stats(ls).to_dict()})
+        return
+    _print_liveset(ls, liveset_id)
+
+
+@liveset_app.command("profile")
+def liveset_profile(
+    liveset_id: Annotated[int, typer.Argument(help="Live set number from 'liveset list'.")],
+    save_profile: SaveProfileOpt = None,
+    force: Annotated[bool, typer.Option(help="Replace an existing saved profile.")] = False,
+    db: DbOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Draft a style profile from a stored live set."""
+    draft = draft_profile(_get_liveset(liveset_id, db))
+    saved = _save_profile(draft, save_profile, force) if save_profile else None
+    if as_json:
+        _emit_json({"draft_profile": draft, "saved_profile": str(saved) if saved else None})
+        return
+    out.print_json(json.dumps(draft, ensure_ascii=False))
+    if saved:
+        out.print(f"Saved to [bold]{saved}[/bold]; use it with --style {saved.stem}.")
+
+
+@liveset_app.command("delete")
+def liveset_delete(
+    liveset_id: Annotated[int, typer.Argument(help="Live set number from 'liveset list'.")],
+    db: DbOpt = None,
+) -> None:
+    """Delete a stored live set (its derived data only; no audio is ever stored)."""
+    with Store(db) as store:
+        deleted = store.delete_liveset(liveset_id)
+    if not deleted:
+        err.print(f"[red]No stored live set #{liveset_id}.[/red]")
+        raise typer.Exit(EXIT_TRACK_NOT_FOUND)
+    out.print(f"Deleted live set #{liveset_id}.")
+
+
+# ---------------------------------------------------------------- learning
+
+
+@app.command("learn")
+def learn_command(
+    collection: CollectionArg,
+    prior: Annotated[
+        float,
+        typer.Option(
+            min=0,
+            help="How many transitions it takes for your habits to count as much as the defaults.",
+        ),
+    ] = DEFAULT_CONFIG.liveset.learn_prior,
+    history: Annotated[bool, typer.Option(help="Learn from imported Rekordbox history.")] = True,
+    livesets: Annotated[bool, typer.Option(help="Learn from analyzed live sets.")] = True,
+    db: DbOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Learn your key-move and tempo-change habits and store them for --learned.
+
+    Uses consecutive tracks in Rekordbox history sessions ('setsmith rekordbox import') and
+    transitions in analyzed live sets. Learned values blend with the defaults with weight
+    n / (n + prior).
+    """
+    col, _ = _load_analyzed(collection, db, use_analysis=True)
+    by_path: dict[str, Track] = {}
+    for track in col.tracks.values():
+        local = location_to_path(track.location)
+        if local:
+            by_path[normalize_file_path(local)] = track
+    with Store(db) as store:
+        sessions = [s.paths for s in store.load_history()] if history else []
+        liveset_moves: list[tuple[str | None, float | None]] = []
+        if livesets:
+            for liveset_id, _, _ in store.list_livesets():
+                data = store.get_liveset(liveset_id)
+                if data:
+                    ls = LiveSet.from_dict(data)
+                    liveset_moves += [(t.key_move, t.tempo_change_pct) for t in ls.transitions]
+        prefs = learn(history_pairs(sessions, by_path), liveset_moves, prior=prior)
+        if prefs.key_count or prefs.tempo_count:
+            store.save_learned(prefs.to_dict())
+
+    if as_json:
+        _emit_json(
+            {
+                **prefs.to_dict(),
+                "key_table": [
+                    dict(zip(("move", "played", "default", "learned"), r, strict=True))
+                    for r in move_table(prefs)
+                ],
+                "tempo_table": [
+                    dict(zip(("band", "played", "default", "learned"), r, strict=True))
+                    for r in tempo_table(prefs)
+                ],
+            }
+        )
+        return
+    total = sum(prefs.sources.values())
+    if not (prefs.key_count or prefs.tempo_count):
+        out.print(
+            "Nothing to learn from yet: import history with 'setsmith rekordbox import' or "
+            "analyze a set with 'setsmith liveset analyze'."
+        )
+        return
+    out.print(
+        f"Learned from {total} transitions ({prefs.sources.get('history', 0)} from history, "
+        f"{prefs.sources.get('livesets', 0)} from live sets); prior {prior:g}."
+    )
+    for title, rows in (("Key moves", move_table(prefs)), ("Tempo change", tempo_table(prefs))):
+        table = Table(title, "Played", "Default", "Learned", title=None, pad_edge=False)
+        for label, played, default, new in rows:
+            table.add_row(label, str(played), f"{default:.2f}", f"{new:.2f}")
+        out.print(table)
+    out.print("[dim]Use with: setsmith suggest ... --learned / setsmith build ... --learned[/dim]")
 
 
 # ---------------------------------------------------------------- feedback

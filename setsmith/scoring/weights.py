@@ -161,6 +161,12 @@ class SearchConfig(_Config):
     substring_base: float = 0.9
     artist_share: float = 0.4  # weight of artist vs title in "Artist - Title" queries
     max_candidates: int = 10
+    # Version labels tracklists add or drop freely; ignored when matching titles. Remix
+    # names are kept: they identify a different recording.
+    version_noise: tuple[str, ...] = (
+        "original mix", "extended mix", "extended version", "extended", "radio edit",
+        "radio mix", "club mix", "main mix", "album version", "full length", "original",
+    )  # fmt: skip
 
 
 class DisplayConfig(_Config):
@@ -322,6 +328,57 @@ class RekordboxDbConfig(_Config):
     keep_copies: int = 3  # master.db copies kept in Setsmith's folder; older ones are pruned
 
 
+class LiveSetConfig(_Config):
+    """Phase 5: analysis of recorded sets and tracklists."""
+
+    window_s: float = 30.0  # windowed tempo/key/loudness on the recording
+    sample_rate: int = 22050
+    n_fft: int = 4096
+    hop_length: int = 1024  # ~46 ms frames for alignment features
+    n_mfcc: int = 13
+    mfcc_weight: float = 0.5  # MFCC vs chroma share in the alignment distance
+    # Subsequence DTW of each original track against the mix (Kim et al. 2020).
+    search_margin_s: float = 180.0  # around tracklist timestamps
+    max_search_s: float = 1200.0  # mix span searched per track without timestamps
+    # Cost multiplier for DTW steps that stall one side. Above 1 keeps the path on the 1:1
+    # diagonal instead of sliding between repeated loops (common in dance music).
+    dtw_offdiagonal_weight: float = 2.0
+    diagonal_window_beats: int = 16  # sliding window for "playing at normal speed"
+    diagonal_min_share: float = 0.75  # share of 1:1 beat steps inside that window
+    min_played_beats: int = 32  # shorter matches are treated as not found
+    max_match_cost: float = 0.35  # mean cosine distance above this = not found
+    novelty_half_window_bars: int = 16  # boundary detection without timestamps or DTW
+    # After DTW fixes each track's offset, per-beat gains (non-negative least squares on
+    # mel power: mix ~ sum of gain x track) show where each track is audible, including
+    # fades that similarity alone cannot see.
+    # A fader moves amplitude (sqrt of power gain) roughly linearly, so each span edge is
+    # found by fitting a line to the fade and extrapolating it to silence.
+    n_mels: int = 64
+    amp_smooth_beats: int = 4
+    fade_fit_range: tuple[float, float] = (0.2, 0.85)  # relative amplitudes used for the fit
+    fade_floor: float = 0.15  # stop walking outwards below this relative amplitude
+    fade_rise_tolerance: float = 0.1  # ...or when amplitude rises again by this much
+    fade_min_points: int = 4
+    max_extend_beats: int = 256  # how far a span may grow beyond its DTW core
+    # Estimating transition types from measured overlaps.
+    blend_min_bars: float = 16.0  # overlap at least this long counts as a long blend
+    sweep_min_bars: float = 4.0  # shorter overlaps count as cuts
+    min_overlap_bars: float = 4.0  # shorter overlaps are not snapped to a blend length
+    # Draft profiles.
+    bpm_band_percentiles: tuple[float, float] = (10.0, 90.0)
+    bpm_round: float = 0.5
+    move_smoothing: float = 1.0  # add-one smoothing for key-move weights
+    energy_smooth_windows: int = 3
+    curve_points: int = 5
+    top_references: int = 5
+    # Learned preferences: learned values get weight n / (n + learn_prior).
+    learn_prior: float = 50.0
+    default_length_mix: dict[str, float] = {"8": 0.1, "16": 0.3, "32": 0.45, "64": 0.15}
+    default_type_mix: dict[str, float] = {
+        "long_blend": 0.5, "cut": 0.1, "echo_out": 0.1, "filter_sweep": 0.2, "drop_swap": 0.1,
+    }  # fmt: skip
+
+
 class ScoringConfig(_Config):
     weights: ComponentWeights = ComponentWeights()
     tempo: TempoConfig = TempoConfig()
@@ -337,6 +394,7 @@ class ScoringConfig(_Config):
     style: StyleConfig = StyleConfig()
     vocal: VocalTagConfig = VocalTagConfig()
     rekordbox_db: RekordboxDbConfig = RekordboxDbConfig()
+    liveset: LiveSetConfig = LiveSetConfig()
 
 
 DEFAULT_CONFIG = ScoringConfig()

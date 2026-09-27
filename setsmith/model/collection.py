@@ -61,7 +61,7 @@ class Collection:
         """(artist, title) run through normalize_text, cached per TrackID."""
         names = self._names.get(track.id)
         if names is None:
-            names = (normalize_text(track.artist), normalize_text(track.title))
+            names = (normalize_text(track.artist), strip_versions(normalize_text(track.title)))
             self._names[track.id] = names
         return names
 
@@ -93,6 +93,14 @@ def normalize_text(text: str) -> str:
     no_accents = "".join(c for c in decomposed if not unicodedata.combining(c))
     cleaned = _PUNCT_RE.sub(" ", no_accents.casefold())
     return _SPACE_RE.sub(" ", cleaned).strip()
+
+
+def strip_versions(normalized: str, cfg: SearchConfig = DEFAULT_CONFIG.search) -> str:
+    """Drop version labels like "extended mix" from normalized text (whole words only)."""
+    text = f" {normalized} "
+    for phrase in cfg.version_noise:
+        text = text.replace(f" {phrase} ", " ")
+    return " ".join(text.split()) or normalized
 
 
 class _Similarity:
@@ -139,6 +147,7 @@ def find_track(
         artist_q, title_q = (normalize_text(p) for p in query.split(_ARTIST_TITLE_SEP, 1))
     else:
         artist_q, title_q = "", normalize_text(query)
+    title_q = strip_versions(title_q, cfg)
 
     title_sim, artist_sim = _Similarity(title_q, cfg), _Similarity(artist_q, cfg)
 

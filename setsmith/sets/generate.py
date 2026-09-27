@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from setsmith.graph.build import CompatibilityGraph, PairKey, PairScore
 from setsmith.io.enrich import tag_names
-from setsmith.model.collection import Collection, normalize_text
+from setsmith.model.collection import Collection, normalize_text, strip_versions
 from setsmith.model.track import Track
 from setsmith.scoring.transition import TransitionScore, energy_score, score_transition
 from setsmith.scoring.weights import DEFAULT_CONFIG, ScoringConfig, band_score
@@ -253,7 +253,9 @@ class _Search:
         self._style_pts: dict[str, float] = {}
         # Duplicate collection entries of one song share a key, so a set never repeats it.
         self.song = {
-            tid: (normalize_text(t.artist), normalize_text(t.title)) if t.title else (tid, "")
+            tid: (normalize_text(t.artist), strip_versions(normalize_text(t.title)))
+            if t.title
+            else (tid, "")
             for tid, t in graph.tracks.items()
         }
 
