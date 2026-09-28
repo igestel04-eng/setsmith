@@ -163,6 +163,7 @@ Wrote 'Friday opener', 'Friday opener (alternates)' to setsmith.xml.
 
 **Filters:**
 
+- `--around "Artist - Title"` (repeat, up to 5; any songs) mixes in songs you don't own, found around those songs: similar songs from the same scene, like [`discover`](#discover-find-tracks-you-dont-own-yet), with BPM and key from GetSongBPM or Deezer previews. `--new-share` sets roughly how much of the set is new songs (default 0.5; 1 means as many as fit). New songs get their genre from your own tags for the same artist when you have any, else from the song they were found around. Their estimated keys and missing energy make them score lower than your analyzed tracks, so the search paces them in toward the share (a bonus while behind, only new songs once a whole song behind); the transition scores shown are never adjusted. New songs are marked `(new)`, listed under **Songs to get** with SoundCloud, Beatport and Deezer links, and left out of the Rekordbox export, which keeps your own tracks in set order. The web UI has the same options under **Mix in new songs around**.
 - `--start "Artist - Title"` or `--start-id` fixes the opening track. `--start-song` takes any song, even one you don't own (looked up like `suggest --song`). The set is built to follow it, but it can't go into the exported playlist, which then starts at track 2: add the song in Rekordbox and put it first.
 - `--bpm-min` / `--bpm-max` limit the tempo range.
 - `--genre` limits genres. Repeat it for several; spellings are normalized, so `afro-house` matches `Afro House`.

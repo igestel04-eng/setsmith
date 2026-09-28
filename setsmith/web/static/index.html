@@ -60,6 +60,17 @@
         <label>Set name
           <input name="name" placeholder="optional">
         </label>
+        <label class="wide">Mix in new songs around (optional, up to 5)
+          <textarea name="around" rows="3" placeholder="Songs you don't have to own, one per line, e.g.&#10;Francis Mercier - Kamili&#10;Rampa - Champion"></textarea>
+        </label>
+        <label>New songs
+          <select name="new_share">
+            <option value="0.25">about 25% of the set</option>
+            <option value="0.5" selected>about 50% of the set</option>
+            <option value="0.75">about 75% of the set</option>
+            <option value="1">as many as fit</option>
+          </select>
+        </label>
         <label class="check"><input name="learned" type="checkbox"> Use my learned weights</label>
         <div class="actions"><button type="submit" class="primary">Build set</button></div>
       </form>

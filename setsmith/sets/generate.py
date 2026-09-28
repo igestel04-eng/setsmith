@@ -14,6 +14,7 @@ The beam keeps the best `beam_width` partial sets by summed step score.
 from __future__ import annotations
 
 import heapq
+import math
 import re
 import statistics
 import unicodedata
@@ -60,6 +61,11 @@ class SetRequest:
     beam_width: int | None = None  # None = config default
     style: StyleProfile | None = None  # BPM band, drift, key/genre weights, style fit
     tags: frozenset[str] = frozenset()  # lowercased My Tag names; empty = any
+    # Songs outside the library mixed into the pool: about this share of the set's tracks
+    # comes from `new_ids`, never more (a fixed opening track doesn't count). Until the
+    # share is reached, new songs get a bonus in the search: their keys are estimates.
+    new_ids: frozenset[str] = frozenset()
+    max_new_share: float = 1.0
 
     @property
     def bpm_range(self) -> tuple[float | None, float | None]:
@@ -132,6 +138,9 @@ class GeneratedSet:
     positions: list[SetPosition]
     stats: SetStats
     warnings: list[str]
+    # Songs outside the library, by track ID: where to get them (links) and how they
+    # were found. Filled in by the caller that added them to the pool.
+    outside: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     @property
     def track_ids(self) -> list[str]:
@@ -250,6 +259,9 @@ class _Search:
             self.max_drift = self.style.max_tempo_drift_bpm
         else:
             self.max_drift = sc.max_tempo_drift_bpm
+        self.new_ids = request.new_ids
+        self.max_new: int | None = None  # set once the track count is known
+        self.fixed_start = request.start_id is not None
         self.energy_weight_pts = 100 * cfg.weights.energy
         self.style_max_pts = sc.style_fit_points if self.style else 0.0
         self._style_pts: dict[str, float] = {}
@@ -353,6 +365,8 @@ class _Search:
                 return (-self.start_pts(t), off_tempo, -t.rating, t.display, t.id)
 
             ranked = sorted(self.t.values(), key=rank)
+            if self.max_new == 0:
+                ranked = [t for t in ranked if t.id not in self.new_ids]
             starts = ranked[: self.width]
         states = []
         for track in starts:
@@ -366,28 +380,52 @@ class _Search:
         a = self.t[a_id]
         used = self.used_songs(state.path)
         blocked = state.path[-self.artist_gap :] if self.artist_gap > 0 else ()
-        best: list[tuple[float, int, _State]] = []
-        for n, (b_id, ceiling) in enumerate(self.g.candidates(a_id)):
-            # Candidates come sorted by a ceiling on base; energy and style add at most
-            # their maximum points and penalties only subtract, so once the ceiling
-            # loses, every later candidate does too.
-            bound = state.score + ceiling + self.energy_weight_pts + self.style_max_pts
-            if len(best) >= self.width and bound <= best[0][0]:
-                break
-            if self.song[b_id] in used:
-                continue
-            b = self.t[b_id]
-            if blocked and self.shares_artist(b, blocked):
-                continue
-            base, boost = self.g.pair(a_id, b_id)
-            penalty, lo, hi = self.penalties(state, b, i, boost)
-            score = state.score + base + self.energy_pts(a, b, i) + self.style_pts(b) - penalty
-            new = _State((*state.path, b_id), score, (*state.boosts, boost), state.ref_bpm, lo, hi)
-            if len(best) < self.width:
-                heapq.heappush(best, (score, n, new))
-            elif score > best[0][0]:
-                heapq.heapreplace(best, (score, n, new))
-        return [s for _, _, s in best]
+        counted = state.path[1:] if self.fixed_start else state.path
+        new_count = sum(1 for p in counted if p in self.new_ids)
+        new_full = self.max_new is not None and new_count >= self.max_new
+        # Paced toward the share so new songs spread through the set: a bonus while the set
+        # is behind at this point, and only new songs once it is a whole song behind (their
+        # estimated keys and missing energy would otherwise keep them out).
+        share_here = (self.max_new or 0) * (i + 1) / len(self.targets)
+        new_bonus = (
+            self.cfg.sets.new_song_bonus_pts
+            if new_count < math.ceil(share_here) and not new_full
+            else 0.0
+        )
+        only_new = new_count < math.floor(share_here) and not new_full
+
+        def scan(only_new: bool) -> list[_State]:
+            best: list[tuple[float, int, _State]] = []
+            for n, (b_id, ceiling) in enumerate(self.g.candidates(a_id)):
+                # Candidates come sorted by a ceiling on base; energy and style add at most
+                # their maximum points and penalties only subtract, so once the ceiling
+                # loses, every later candidate does too.
+                bound = (
+                    state.score + ceiling + self.energy_weight_pts + self.style_max_pts + new_bonus
+                )
+                if len(best) >= self.width and bound <= best[0][0]:
+                    break
+                is_new = b_id in self.new_ids
+                if self.song[b_id] in used or (new_full and is_new) or (only_new and not is_new):
+                    continue
+                b = self.t[b_id]
+                if blocked and self.shares_artist(b, blocked):
+                    continue
+                base, boost = self.g.pair(a_id, b_id)
+                penalty, lo, hi = self.penalties(state, b, i, boost)
+                score = state.score + base + self.energy_pts(a, b, i) + self.style_pts(b) - penalty
+                if is_new:
+                    score += new_bonus
+                path = (*state.path, b_id)
+                new = _State(path, score, (*state.boosts, boost), state.ref_bpm, lo, hi)
+                if len(best) < self.width:
+                    heapq.heappush(best, (score, n, new))
+                elif score > best[0][0]:
+                    heapq.heapreplace(best, (score, n, new))
+            return [s for _, _, s in best]
+
+        # No new song fits here (tempo, artist gap): fall back to the whole pool.
+        return (only_new and scan(True)) or scan(False)
 
     def run(self, n: int, start_id: str | None) -> list[str]:
         """Best path of up to n tracks (shorter if the pool runs dry)."""
@@ -432,6 +470,8 @@ def generate_set(
     graph = CompatibilityGraph(pool, cfg, cache, request.style)
     targets = request.curve.targets(n)
     search = _Search(graph, targets, request, cfg)
+    if request.new_ids:
+        search.max_new = round(request.max_new_share * n)
     path = search.run(n, request.start_id)
     reached = len(path)
     if reached < n:

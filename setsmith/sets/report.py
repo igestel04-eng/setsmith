@@ -13,12 +13,28 @@ def _energy(t: Track) -> str:
     return f"{t.energy:g}" if t.energy is not None else "-"
 
 
+_LINK_NAMES = {
+    "soundcloud": "SoundCloud",
+    "beatport": "Beatport",
+    "deezer": "Deezer",
+    "lastfm": "Last.fm",
+    "getsongbpm": "GetSongBPM",
+}
+
+
+def _outside_used(gen: GeneratedSet) -> dict[str, dict[str, Any]]:
+    """Outside-song info for the tracks in the set and its alternates, in set order."""
+    used = gen.track_ids + gen.alternate_ids
+    return {tid: gen.outside[tid] for tid in used if tid in gen.outside}
+
+
 def set_to_dict(gen: GeneratedSet, name: str) -> dict[str, Any]:
     return {
         "name": name,
         "curve": gen.curve,
         "stats": gen.stats.to_dict(),
         "warnings": gen.warnings,
+        "outside": _outside_used(gen),
         "positions": [
             {
                 "position": p.index + 1,
@@ -97,10 +113,25 @@ def render_markdown(gen: GeneratedSet, name: str) -> str:
         t = p.track
         score = f"{p.transition.total:.0f}" if p.transition else ""
         flags = ", ".join(p.transition.flags) if p.transition else ""
+        new = " (new)" if t.id in gen.outside else ""
         lines.append(
-            f"| {p.index + 1} | {_md(t.display)} | {t.bpm:g} | {t.camelot or '-'} | "
+            f"| {p.index + 1} | {_md(t.display)}{new} | {t.bpm:g} | {t.camelot or '-'} | "
             f"{_energy(t)} ({p.target_energy:.1f}) | {score} | {_transition_cell(p)} | {flags} |"
         )
+
+    to_get = [p for p in gen.positions if p.track.id in gen.outside]
+    if to_get:
+        lines += ["", "## Songs to get", "", "Not in your library yet:", ""]
+        for p in to_get:
+            info = gen.outside[p.track.id]
+            links = " · ".join(
+                f"[{label}]({url.replace('(', '%28').replace(')', '%29')})"
+                for key, label in _LINK_NAMES.items()
+                if (url := info.get("links", {}).get(key, "")).startswith(("https://", "http://"))
+            )
+            via = f" Found {info['found_via']}." if info.get("found_via") else ""
+            source = f" BPM/key {info['bpm_key_source']}." if info.get("bpm_key_source") else ""
+            lines.append(f"- {p.index + 1}. {_md(p.track.display)}: {links}.{via}{source}")
 
     lines += ["", "## Transitions", ""]
     for p, nxt in zip(gen.positions, gen.positions[1:], strict=False):

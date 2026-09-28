@@ -359,7 +359,7 @@ class _Scene:
         return max((self.by_name.get(n, 0.0) for n in names), default=0.0)
 
 
-def _links(artist: str, title: str, lastfm_url: str) -> dict[str, str]:
+def listen_links(artist: str, title: str, lastfm_url: str) -> dict[str, str]:
     query = urllib.parse.quote_plus(f"{artist} {title}")
     links = {
         "soundcloud": f"https://soundcloud.com/search/sounds?q={query}",
@@ -504,7 +504,7 @@ def discover(
         if not (track.bpm and track.camelot):
             result.without_tempo_key += 1
         score = score_transition(seed, track, cfg=cfg, style=style)
-        links = {**_links(cand.artist, cand.title, cand.url), **(info.links if info else {})}
+        links = {**listen_links(cand.artist, cand.title, cand.url), **(info.links if info else {})}
         fit = style.style_fit(track, cfg) if style else None
         discoveries.append(
             Discovery(

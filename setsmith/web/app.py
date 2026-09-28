@@ -13,7 +13,7 @@ import threading
 import uuid
 from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -33,7 +33,15 @@ from setsmith.discovery.discover import (
 )
 from setsmith.discovery.http import ServiceError
 from setsmith.discovery.keys import get_key
-from setsmith.discovery.song import Song, library_ids, resolve_song, start_warning, with_track
+from setsmith.discovery.newsongs import gather_new_songs, with_tracks
+from setsmith.discovery.song import (
+    Song,
+    library_ids,
+    outside_warning,
+    resolve_song,
+    song_outside,
+    with_track,
+)
 from setsmith.graph.build import config_key, track_fingerprint
 from setsmith.io.rekordbox_xml import ExportError, PlaylistSpec, export_playlists, load_collection
 from setsmith.library import enrich, learned_config
@@ -66,7 +74,12 @@ class BuildBody(BaseModel):
     curve: str | None = None  # template name or custom points; default: style's, else journey
     style: str | None = None  # a key from /api/styles
     start_id: str | None = None
-    start_song: str | None = Field(default=None, max_length=200)  # any song, see /api/song
+    start_song: str | None = Field(default=None, max_length=200)  # any song
+    # Mix in songs outside the library, found around these songs (any songs).
+    around: list[Annotated[str, Field(max_length=200)]] = Field(
+        default=[], max_length=DEFAULT_CONFIG.discovery.max_seed_songs
+    )
+    new_share: float = Field(default=DEFAULT_CONFIG.discovery.default_new_share, ge=0, le=1)
     bpm_min: float | None = None
     bpm_max: float | None = None
     genres: list[str] = []
@@ -291,13 +304,30 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(400, f"curve: {exc}") from exc
         genres = frozenset(g for item in body.genres for g in cfg.genre.normalize(item))
-        collection, start_id, song_warnings = state.collection, body.start_id or None, []
+        collection, start_id = state.collection, body.start_id or None
+        song_warnings: list[str] = []
+        outside: dict[str, dict[str, Any]] = {}
+        new_ids: frozenset[str] = frozenset()
+        around = [a for a in body.around if a.strip()]
+        if around:
+            try:
+                with Store(state.db or default_db_path()) as store:
+                    new = gather_new_songs(around, collection, store, cfg)
+            except (DiscoveryUnavailable, ValueError) as exc:
+                raise HTTPException(400, str(exc)) from exc
+            except ServiceError as exc:
+                raise HTTPException(502, str(exc)) from exc
+            collection = with_tracks(collection, new.tracks)
+            song_warnings += new.warnings
+            outside.update(new.outside)
+            new_ids = new.ids
         if body.start_song:
             found = _song(state, body.start_song, cfg)
             start_id = found.track.id
             if not found.in_library:
                 collection = with_track(collection, found.track)
-                song_warnings = [*found.warnings, start_warning(found.track)]
+                song_warnings += found.warnings
+                outside[found.track.id] = song_outside(found)
         request = SetRequest(
             curve=curve,
             minutes=body.minutes if body.tracks is None else None,
@@ -309,6 +339,8 @@ def create_app(
             exclude_ids=frozenset(body.exclude_ids),
             style=profile,
             tags=frozenset(t.casefold() for t in body.tags),
+            new_ids=new_ids,
+            max_new_share=body.new_share,
         )
         db_path = state.db or default_db_path()
         key = config_key(cfg, profile)
@@ -317,7 +349,9 @@ def create_app(
                 pool, _ = filter_pool(collection, request, cfg)
                 cache = store.load_pair_scores(key, {track_fingerprint(t) for t in pool})
                 gen, graph = generate_set(collection, request, cfg=cfg, cache=cache)
-                gen.warnings[:0] = song_warnings
+                gen.outside = outside
+                note = outside_warning(gen.track_ids)
+                gen.warnings[:0] = [*song_warnings, *([note] if note else [])]
                 store.save_pair_scores(key, graph.new_scores)
         except SetGenerationError as exc:
             raise HTTPException(422, str(exc)) from exc

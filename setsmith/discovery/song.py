@@ -11,7 +11,13 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from setsmith.discovery.discover import artist_genre, artists_match, identity, make_clients
+from setsmith.discovery.discover import (
+    artist_genre,
+    artists_match,
+    identity,
+    listen_links,
+    make_clients,
+)
 from setsmith.discovery.lastfm import LastFm
 from setsmith.discovery.tempokey import lookup_tempo_key
 from setsmith.model.collection import Collection
@@ -19,7 +25,8 @@ from setsmith.model.track import Track
 from setsmith.scoring.weights import DEFAULT_CONFIG, ScoringConfig
 from setsmith.store import Store
 
-EXTERNAL_ID = "external:song"
+EXTERNAL_PREFIX = "external:"  # IDs of tracks outside the collection
+EXTERNAL_ID = f"{EXTERNAL_PREFIX}song"
 _SEPARATOR = " - "
 
 
@@ -42,7 +49,7 @@ class Song:
 
 
 def is_external(track: Track) -> bool:
-    return track.id == EXTERNAL_ID
+    return track.id.startswith(EXTERNAL_PREFIX)
 
 
 def with_track(collection: Collection, track: Track) -> Collection:
@@ -69,14 +76,30 @@ def library_match(
 
 def library_ids(track_ids: list[str] | tuple[str, ...]) -> tuple[str, ...]:
     """Track IDs that can go into a Rekordbox playlist (songs outside it can't)."""
-    return tuple(t for t in track_ids if t != EXTERNAL_ID)
+    return tuple(t for t in track_ids if not t.startswith(EXTERNAL_PREFIX))
 
 
-def start_warning(track: Track) -> str:
+def outside_warning(track_ids: list[str]) -> str | None:
+    """A note on songs in the set that aren't in the library, if any."""
+    count = sum(1 for t in track_ids if t.startswith(EXTERNAL_PREFIX))
+    if not count:
+        return None
     return (
-        f"the opening track {track.display} is not in your library, so the exported playlist "
-        "starts at track 2: add it in Rekordbox and put it first"
+        f"{count} song(s) in this set aren't in your library (marked new): get them from the "
+        "links before you play. The Rekordbox export has only your own tracks, in set order"
     )
+
+
+def song_outside(song: Song) -> dict[str, Any]:
+    """Outside-song info (links, source) for a looked-up song."""
+    t = song.track
+    return {
+        "artist": t.artist,
+        "title": t.title,
+        "found_via": "your opening song",
+        "bpm_key_source": song.bpm_key_source,
+        "links": song.links,
+    }
 
 
 def parse_song(query: str, lfm: LastFm | None) -> tuple[str, str]:
@@ -124,7 +147,8 @@ def resolve_song(
         camelot=info.camelot if info else None,
         key_confidence=info.key_confidence if info else cfg.harmonic.default_tag_confidence,
     )
-    song = Song(track, in_library=False, links=dict(info.links) if info else {}, warnings=notes)
+    links = {**listen_links(artist, title, ""), **(info.links if info else {})}
+    song = Song(track, in_library=False, links=links, warnings=notes)
     if track.bpm or track.camelot:
         song.bpm_key_source = info.source if info else None
     missing = [name for name, value in (("BPM", track.bpm), ("key", track.camelot)) if not value]

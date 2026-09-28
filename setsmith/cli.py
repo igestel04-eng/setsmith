@@ -45,7 +45,15 @@ from setsmith.discovery.discover import (
 from setsmith.discovery.discover import discover as run_discovery
 from setsmith.discovery.http import ServiceError
 from setsmith.discovery.keys import SERVICES, key_source, remove_key, set_key
-from setsmith.discovery.song import Song, library_ids, resolve_song, start_warning, with_track
+from setsmith.discovery.newsongs import NewSongs, gather_new_songs, with_tracks
+from setsmith.discovery.song import (
+    Song,
+    library_ids,
+    outside_warning,
+    resolve_song,
+    song_outside,
+    with_track,
+)
 from setsmith.graph.build import config_key, track_fingerprint
 from setsmith.io.rekordbox_db import (
     KEY_ENV,
@@ -305,6 +313,37 @@ def _seed_or_song(
         raise typer.BadParameter("give --song or --track/--id, not both", param_hint="--song")
     found = _resolve_song(collection, song, db, cfg, as_json)
     return found.track, found
+
+
+def _gather_new_songs(
+    collection: Collection, queries: list[str], db: Path | None, cfg: ScoringConfig, as_json: bool
+) -> NewSongs:
+    try:
+        with Store(db) as store, out.status("[dim]finding new songs...[/dim]") as spinner:
+            return gather_new_songs(
+                queries, collection, store, cfg,
+                on_progress=None if as_json else lambda m: spinner.update(f"[dim]{m}...[/dim]"),
+            )  # fmt: skip
+    except DiscoveryUnavailable as exc:
+        err.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(EXIT_LOAD_ERROR) from exc
+    except (ServiceError, ValueError) as exc:
+        if as_json:
+            _emit_json({"error": str(exc)})
+        else:
+            err.print(f"[red]Could not find new songs:[/red] {exc}")
+        raise typer.Exit(EXIT_TRACK_NOT_FOUND) from exc
+
+
+def _print_songs_to_get(gen: GeneratedSet) -> None:
+    to_get = [p for p in gen.positions if p.track.id in gen.outside]
+    if not to_get:
+        return
+    out.print("\n[bold]Songs to get[/bold] [dim](not in your library)[/dim]")
+    for p in to_get:
+        info = gen.outside[p.track.id]
+        link = info.get("links", {}).get("soundcloud") or info.get("links", {}).get("deezer", "")
+        out.print(f"  {p.index + 1:>2}. {p.track.display}  [dim]{link}[/dim]", highlight=False)
 
 
 def _print_song(song: Song | None) -> None:
@@ -579,6 +618,8 @@ def _set_table(gen: GeneratedSet, wide: bool) -> Table:
         tr = p.transition
         flags = ", ".join(tr.flags) if tr else ""
         track_cell = Text(p.track.display)
+        if p.track.id in gen.outside:
+            track_cell.append(" (new)", style="bold magenta")
         if flags and not wide:
             track_cell.append(f"\n{flags}", style="yellow")
         row: list[str | Text] = [
@@ -657,6 +698,24 @@ def build(
             "can't go into the exported playlist, which then starts at track 2.",
         ),
     ] = None,
+    around: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--around",
+            help="Mix in songs you don't own, found around this song (any song; repeat, up "
+            f"to {DEFAULT_CONFIG.discovery.max_seed_songs}). Needs a Last.fm key; BPM and key "
+            "come from GetSongBPM or Deezer previews.",
+        ),
+    ] = None,
+    new_share: Annotated[
+        float,
+        typer.Option(
+            "--new-share",
+            min=0.0,
+            max=1.0,
+            help="With --around: the most of the set that may be new songs (0-1).",
+        ),
+    ] = DEFAULT_CONFIG.discovery.default_new_share,
     bpm_min: Annotated[float | None, typer.Option(help="Lowest BPM allowed.")] = None,
     bpm_max: Annotated[float | None, typer.Option(help="Highest BPM allowed.")] = None,
     genre: Annotated[
@@ -736,6 +795,14 @@ def build(
     col, _ = _load_analyzed(collection, db, not no_analysis)
     cfg = _scoring_config(learned, db)
     song_warnings: list[str] = []
+    outside: dict[str, dict[str, Any]] = {}
+    new_ids: frozenset[str] = frozenset()
+    if around:
+        new = _gather_new_songs(col, around, db, cfg, as_json)
+        col = with_tracks(col, new.tracks)
+        song_warnings += new.warnings
+        outside.update(new.outside)
+        new_ids = new.ids
     if start_song is not None:
         if start is not None or start_id is not None:
             raise typer.BadParameter(
@@ -745,7 +812,8 @@ def build(
         start_track: Track | None = found.track
         if not found.in_library:
             col = with_track(col, found.track)
-            song_warnings = [*found.warnings, start_warning(found.track)]
+            song_warnings += found.warnings
+            outside[found.track.id] = song_outside(found)
     else:
         start_track = _resolve_track(
             col, start, start_id, as_json, flags=("--start", "--start-id"), required=False
@@ -778,6 +846,8 @@ def build(
         beam_width=beam,
         style=profile,
         tags=frozenset(t.casefold() for t in tag or []),
+        new_ids=new_ids,
+        max_new_share=new_share,
     )
 
     store = None if no_cache else Store(db)
@@ -788,7 +858,9 @@ def build(
             pool, _ = filter_pool(col, request, cfg)
             cache = store.load_pair_scores(cfg_key, {track_fingerprint(t) for t in pool})
         generated, graph = run_generation(col, request, cfg=cfg, cache=cache)
-        generated.warnings[:0] = song_warnings
+        generated.outside = outside
+        note = outside_warning(generated.track_ids)
+        generated.warnings[:0] = [*song_warnings, *([note] if note else [])]
         if store is not None:
             store.save_pair_scores(cfg_key, graph.new_scores)
     except SetGenerationError as exc:
@@ -850,6 +922,7 @@ def build(
         out.print(f"[yellow]warning:[/yellow] {warning}", highlight=False)
     out.print(_set_table(generated, wide=out.width >= DEFAULT_CONFIG.display.wide_table_min_width))
     _print_alternates(generated)
+    _print_songs_to_get(generated)
     if report is not None:
         out.print(f"Report written to [bold]{report}[/bold]")
     if exported is not None:
