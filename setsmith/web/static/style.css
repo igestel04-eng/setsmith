@@ -158,3 +158,4 @@ a { color: var(--accent); }
 .timeline .target { fill: none; stroke: var(--target); stroke-width: 1.5; stroke-dasharray: 5 4; }
 .timeline .legend text { fill: var(--muted); font-size: 11px; }
 textarea { resize: vertical; font-family: inherit; line-height: 1.4; }
+.new-song { margin-left: 6px; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 600; color: var(--accent-ink); background: var(--target); }

@@ -337,7 +337,8 @@ def test_cli_build_start_song(fixture_5: Path, tmp_path: Path) -> None:
     data = json.loads(result.output)
     ids = [p["track"]["id"] for p in data["positions"]]
     assert ids[0] == EXTERNAL_ID and len(ids) == 3
-    assert any("not in your library" in w for w in data["warnings"])
+    assert any("1 song(s) in this set aren't in your library" in w for w in data["warnings"])
+    assert data["outside"][EXTERNAL_ID]["links"]["soundcloud"].startswith("https://soundcloud.com/")
     exported = load_collection(out)
     assert exported.playlists is not None
     playlist = next(n for _, n in exported.playlists.walk() if n.name == data["name"])

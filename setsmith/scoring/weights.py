@@ -215,6 +215,10 @@ class SetConfig(_Config):
     tempo_reversal_bpm: float = 3.0  # tempo drops bigger than this while energy is rising
     tempo_reversal_penalty: float = 10.0
     style_fit_points: float = 15.0  # style fit (0-1) x this is added to each step
+    # Songs outside the library (asked for with a new-song share) score conservatively:
+    # their keys are estimates. Until the set holds its share of them, each gets this
+    # many points in the search (not in the transition scores shown).
+    new_song_bonus_pts: float = 10.0
     # Half/double-time tracks are folded into the octave of the set's first track.
     octave_fold_ratio: float = 1.414
     default_track_seconds: float = 360.0  # when TotalTime is missing
@@ -396,6 +400,15 @@ class DiscoveryConfig(_Config):
     # are "different scene" and listed last.
     min_scene_match: float = 0.2
     max_lookups: int = 25  # BPM/key lookups per discovery (most relevant candidates first)
+    # Building sets with songs outside the library: new songs are gathered around up to
+    # this many picked songs, this many per song, and by default make up at most this
+    # share of the set.
+    max_seed_songs: int = 5
+    new_songs_per_seed: int = 20
+    default_new_share: float = 0.5
+    # Last.fm artist tags often say only this umbrella genre; new songs from the same
+    # scene as a picked song then take the picked song's genre (e.g. Afro House).
+    umbrella_genres: tuple[str, ...] = ("house",)
     max_per_artist: int = 2  # keep results varied
     # Results with known BPM and key at or above this score rank first; unknowns follow
     # (by relevance: Last.fm similarity and scene match); known poor matches come last.

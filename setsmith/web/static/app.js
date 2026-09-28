@@ -146,8 +146,6 @@ function seedOf(selector) {
   return text ? { song: text } : null;
 }
 
-const EXTERNAL_ID = "external:song";
-
 function seedLine(seed) {
   const base = `${trackName(seed)} (${fmt(seed.bpm, 1)} BPM, ${seed.key || "?"})`;
   if (seed.in_library !== false) return base;
@@ -263,6 +261,8 @@ function buildBody(form) {
     bpm_max: num(f.get("bpm_max")),
     start_id: seedOf('[data-search="start"]')?.track_id || null,
     start_song: seedOf('[data-search="start"]')?.song || null,
+    around: String(f.get("around") || "").split("\n").map((l) => l.trim()).filter(Boolean),
+    new_share: Number(f.get("new_share") || 0.5),
     genres: String(f.get("genres") || "").split(",").map((g) => g.trim()).filter(Boolean),
     learned: f.get("learned") === "on",
     name: f.get("name") || null,
@@ -282,7 +282,13 @@ function showSetDetail(position, data) {
   );
   const prev = data.positions[position.position - 2];
   const parts = [el("h3", {}, `${position.position}. ${trackName(t)}`), dl];
-  if (t.id === EXTERNAL_ID) parts.push(el("p", { class: "muted" }, "Not in your library: add it in Rekordbox and put it first. The exported playlist starts at track 2; BPM and key here were looked up."));
+  const info = (data.outside || {})[t.id];
+  if (info) {
+    const links = [safeLink(info.links.soundcloud, "SoundCloud"), safeLink(info.links.beatport, "Beatport"),
+      safeLink(info.links.deezer, "Deezer"), safeLink(info.links.lastfm, "Last.fm")].filter(Boolean).flatMap((a, j) => (j ? [" · ", a] : [a]));
+    parts.push(el("p", {}, el("strong", {}, "New song: "), "not in your library. Get it: ", ...links),
+      el("p", { class: "muted" }, `Found ${info.found_via}.${info.bpm_key_source ? ` BPM/key ${info.bpm_key_source}.` : ""} The Rekordbox export leaves it out; add it and put it in place.`));
+  }
   if (prev && prev.transition_to_next) {
     parts.push(el("h3", {}, `In from #${prev.position}: ${Math.round(prev.transition_to_next.total)}`), el("pre", {}, prev.explain.join("\n")));
   }
@@ -353,7 +359,7 @@ function renderSet(result) {
     const tr = p.transition_to_next;
     return el("tr", { onclick: () => select(i) },
       el("td", { class: "num" }, p.position),
-      el("td", { class: "track" }, trackName(p.track), p.track.id === EXTERNAL_ID ? el("span", { class: "muted" }, " (not in your library)") : null),
+      el("td", { class: "track" }, trackName(p.track), (data.outside || {})[p.track.id] ? el("span", { class: "new-song" }, " new") : null),
       el("td", { class: "num" }, fmt(p.track.bpm, 1)),
       el("td", {}, keyChip(p.track.key)),
       el("td", { class: "num" }, `${fmt(p.track.energy, 1)} (${fmt(p.target_energy, 1)})`),
@@ -375,7 +381,8 @@ function initBuild() {
     e.preventDefault();
     const button = $("button[type=submit]", form);
     button.disabled = true;
-    status($("#build-status"), "Building...");
+    const around = String(new FormData(form).get("around") || "").trim();
+    status($("#build-status"), around ? "Finding new songs around your picks, then building (the first time can take a few minutes)..." : "Building...");
     try {
       const result = await api("/api/build", { method: "POST", body: JSON.stringify(buildBody(form)) });
       renderSet(result);
