@@ -1,0 +1,48 @@
+{
+  "name": "Melodic House & Techno",
+  "description": "Emotive, atmospheric builds with arpeggios and big breakdowns; long, patient blends.",
+  "kind": "genre",
+  "bpm_band": [
+    120,
+    126
+  ],
+  "bpm_preferred": 123,
+  "max_tempo_drift_bpm": 4,
+  "key_mode_preference": {
+    "minor": 0.9,
+    "major": 0.1
+  },
+  "allowed_key_moves": {
+    "same": 1.0,
+    "adjacent": 1.0,
+    "relative": 0.9,
+    "energy_boost": 0.5,
+    "semitone_lift": 0.2,
+    "diagonal": 0.4
+  },
+  "energy_curve": "journey",
+  "genre_weights": {
+    "melodic house & techno": 1.0,
+    "indie dance": 0.6,
+    "afro house": 0.5,
+    "organic house": 0.5,
+    "deep house": 0.4
+  },
+  "vocal_density": 0.3,
+  "transition_length_bars": {
+    "8": 0.05,
+    "16": 0.2,
+    "32": 0.45,
+    "64": 0.3
+  },
+  "transition_type_mix": {
+    "long_blend": 0.65,
+    "cut": 0.05,
+    "echo_out": 0.1,
+    "filter_sweep": 0.15,
+    "drop_swap": 0.05
+  },
+  "sources": [
+    "Setsmith defaults: tempo ranges and mixing habits common in the genre. Edit to taste."
+  ]
+}

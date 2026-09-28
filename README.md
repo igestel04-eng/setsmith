@@ -188,9 +188,17 @@ uv run setsmith styles list
 uv run setsmith styles show keinemusik
 uv run setsmith build ~/Music/rekordbox.xml --minutes 90 --style keinemusik
 uv run setsmith suggest ~/Music/rekordbox.xml -t "Artist - Title" --style franky_rizardo --explain
+uv run setsmith build ~/Music/rekordbox.xml --minutes 60 --style afro_house     # a genre style
+uv run setsmith styles artist "Black Coffee" --collection ~/Music/rekordbox.xml  # any artist
 ```
 
-A style profile is a small JSON file describing a DJ style's musical parameters: BPM band, preferred key modes and key moves, genre weights, energy curve, vocal share, and typical transition lengths and types. Three are built in, **inspired by** Keinemusik, Brunello and Franky Rizardo. They are starting points written from public track metadata and press descriptions, not measured from real sets, and they imply no endorsement by the artists. Phase 5 will derive profiles from sets you analyze.
+A style profile is a small JSON file describing a DJ style's musical parameters: BPM band, preferred key modes and key moves, genre weights, energy curve, vocal share, and typical transition lengths and types. Built in are three artist styles, **inspired by** Keinemusik, Brunello and Franky Rizardo, and six genre styles: Afro House, Deep House, Tech House, Melodic House & Techno, Organic House and House, with each genre's usual tempo range and mixing habits. They are starting points written from public track metadata and press descriptions, not measured from real sets, and the artist styles imply no endorsement by the artists. `liveset` can also draft a profile from a set you analyze.
+
+**A style for any artist.** `setsmith styles artist "Name"` (or **Style → Any artist...** in the web UI) estimates one:
+- **Tempo range and minor/major balance** come from the artist's 12 most popular tracks on Last.fm, with BPM and key from GetSongBPM or Deezer previews. The range spans the 20th to 80th percentile, so an odd slow or fast production doesn't stretch it.
+- **Mixing habits** (key moves, transition lengths and types, energy curve) come from the genre style that matches the artist. Your own genre tags for the artist are used first, then Last.fm's, specific genres before the umbrella "house".
+- **Where it's saved:** your styles folder, as e.g. `black_coffee.json`, labeled "Inspired by …". Re-estimating replaces only an earlier estimate, never a built-in or a profile you made.
+- **Requirements:** a Last.fm key, and tempos for at least 3 of the tracks.
 
 What a style changes:
 

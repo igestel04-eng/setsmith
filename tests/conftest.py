@@ -18,6 +18,14 @@ def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture(autouse=True)
+def isolated_user_styles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Every test gets an empty styles folder, never the user's real one."""
+    folder = tmp_path / "user-styles"
+    monkeypatch.setenv("SETSMITH_STYLES_DIR", str(folder))
+    return folder
+
+
+@pytest.fixture(autouse=True)
 def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
     """Tests never reach real services: any outgoing connection fails the test."""
 

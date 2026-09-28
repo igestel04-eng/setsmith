@@ -1,0 +1,47 @@
+{
+  "name": "Organic House",
+  "description": "Slower, earthy downtempo-leaning house with acoustic textures; gentle, very long mixes.",
+  "kind": "genre",
+  "bpm_band": [
+    108,
+    120
+  ],
+  "bpm_preferred": 115,
+  "max_tempo_drift_bpm": 5,
+  "key_mode_preference": {
+    "minor": 0.8,
+    "major": 0.2
+  },
+  "allowed_key_moves": {
+    "same": 1.0,
+    "adjacent": 1.0,
+    "relative": 0.9,
+    "energy_boost": 0.5,
+    "semitone_lift": 0.2,
+    "diagonal": 0.4
+  },
+  "energy_curve": "warm_up",
+  "genre_weights": {
+    "organic house": 1.0,
+    "afro house": 0.7,
+    "deep house": 0.6,
+    "melodic house & techno": 0.6
+  },
+  "vocal_density": 0.4,
+  "transition_length_bars": {
+    "8": 0.05,
+    "16": 0.15,
+    "32": 0.4,
+    "64": 0.4
+  },
+  "transition_type_mix": {
+    "long_blend": 0.75,
+    "cut": 0.02,
+    "echo_out": 0.08,
+    "filter_sweep": 0.12,
+    "drop_swap": 0.03
+  },
+  "sources": [
+    "Setsmith defaults: tempo ranges and mixing habits common in the genre. Edit to taste."
+  ]
+}

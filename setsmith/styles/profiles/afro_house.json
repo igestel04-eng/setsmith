@@ -1,0 +1,48 @@
+{
+  "name": "Afro House",
+  "description": "Percussive, tribal and melodic house: shakers, congas, chants, long hypnotic blends.",
+  "kind": "genre",
+  "bpm_band": [
+    118,
+    124
+  ],
+  "bpm_preferred": 121,
+  "max_tempo_drift_bpm": 5,
+  "key_mode_preference": {
+    "minor": 0.75,
+    "major": 0.25
+  },
+  "allowed_key_moves": {
+    "same": 1.0,
+    "adjacent": 1.0,
+    "relative": 0.9,
+    "energy_boost": 0.5,
+    "semitone_lift": 0.2,
+    "diagonal": 0.4
+  },
+  "energy_curve": "journey",
+  "genre_weights": {
+    "afro house": 1.0,
+    "organic house": 0.7,
+    "deep house": 0.6,
+    "melodic house & techno": 0.6,
+    "house": 0.4
+  },
+  "vocal_density": 0.5,
+  "transition_length_bars": {
+    "8": 0.05,
+    "16": 0.25,
+    "32": 0.5,
+    "64": 0.2
+  },
+  "transition_type_mix": {
+    "long_blend": 0.6,
+    "cut": 0.05,
+    "echo_out": 0.1,
+    "filter_sweep": 0.2,
+    "drop_swap": 0.05
+  },
+  "sources": [
+    "Setsmith defaults: tempo ranges and mixing habits common in the genre. Edit to taste."
+  ]
+}
