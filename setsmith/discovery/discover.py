@@ -1,11 +1,15 @@
-"""Find tracks outside the collection that would mix well after a seed track.
+"""Find candidate tracks outside the collection to play after a seed track.
 
 1. Last.fm: tracks similar to the seed, plus top tracks of artists similar to the seed's
    artist. Anything already in the collection is dropped.
-2. The best Last.fm matches (up to `max_lookups`) get BPM and key from GetSongBPM and a
-   genre from their artist's Last.fm tags.
-3. Each candidate is scored as a transition from the seed with the usual scorer (and
-   style profile, if given). Candidates without BPM or key score neutral on those parts.
+2. Scene match: how similar each candidate's artist is to the seed's artist on Last.fm.
+   Track similarity means "listeners also played", which drifts to mainstream hits for a
+   crossover seed; candidates from outside the seed artist's scene are listed last.
+3. The most relevant candidates (up to `max_lookups`) get BPM and key from GetSongBPM, or
+   else estimated from their Deezer preview, and a genre from their artist's Last.fm tags.
+4. Each candidate is scored as a transition from the seed with the usual scorer (and
+   style profile, if given). Candidates without BPM or key are not judged on the mix:
+   they rank by relevance (Last.fm similarity combined with scene match).
 
 Results carry links to the track on Last.fm and searches on SoundCloud and Beatport, so
 the DJ can listen and buy or add it. Nothing is downloaded.
@@ -13,17 +17,20 @@ the DJ can listen and buy or add it. Nothing is downloaded.
 
 from __future__ import annotations
 
+import math
 import re
 import urllib.parse
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from setsmith.discovery import getsongbpm, lastfm
+from setsmith.discovery import getsongbpm, lastfm, preview
 from setsmith.discovery.getsongbpm import GetSongBpm
 from setsmith.discovery.http import JsonClient, ServiceError
 from setsmith.discovery.keys import get_key
 from setsmith.discovery.lastfm import LastFm, LastFmTrack
+from setsmith.discovery.preview import DeezerPreviews
+from setsmith.discovery.tempokey import lookup_tempo_key
 from setsmith.model.collection import Collection, normalize_text, strip_versions
 from setsmith.model.track import Track
 from setsmith.scoring.transition import TransitionScore, score_transition
@@ -32,8 +39,9 @@ from setsmith.sets.generate import artist_names
 from setsmith.store import Store
 from setsmith.styles.profile import StyleFit, StyleProfile
 
-ATTRIBUTIONS = [lastfm.ATTRIBUTION, getsongbpm.ATTRIBUTION]
+ATTRIBUTIONS = [lastfm.ATTRIBUTION, getsongbpm.ATTRIBUTION, preview.ATTRIBUTION]
 _SECONDS_PER_DAY = 86400
+_SECONDS_PER_MINUTE = 60
 
 
 class DiscoveryUnavailable(RuntimeError):
@@ -48,10 +56,23 @@ class Discovery:
     via: str
     match: float
     links: dict[str, str]
+    scene: float | None = None  # similarity of the artist to the seed's artist; None: unknown
+    off_scene: bool = False
+    bpm_key_source: str | None = None  # GetSongBPM, or estimated from the Deezer preview
 
     @property
     def has_tempo_and_key(self) -> bool:
         return bool(self.track.bpm and self.track.camelot)
+
+    @property
+    def relevance(self) -> float:
+        return _relevance(self.match, self.scene)
+
+    @property
+    def rank_basis(self) -> str:
+        if self.off_scene:
+            return "different scene"
+        return "transition score" if self.has_tempo_and_key else "Last.fm similarity"
 
     def to_dict(self) -> dict[str, Any]:
         t = self.track
@@ -63,6 +84,11 @@ class Discovery:
             "genre": t.genre,
             "via": self.via,
             "lastfm_match": round(self.match, 3),
+            "scene_match": None if self.scene is None else round(self.scene, 3),
+            "off_scene": self.off_scene,
+            "bpm_key_known": self.has_tempo_and_key,
+            "bpm_key_source": self.bpm_key_source,
+            "rank_basis": self.rank_basis,
             "links": self.links,
             "score": self.score.to_dict(),
             "explain": self.score.explain(),
@@ -108,37 +134,74 @@ class _StoreCache:
         self.store.cache_put(key, body, self.max_entries)
 
 
+def _cache(store: Store | None, cfg: ScoringConfig) -> _StoreCache | None:
+    return _StoreCache(store, cfg.discovery.cache_max_entries) if store is not None else None
+
+
+def _client(
+    name: str,
+    base: str,
+    interval: float,
+    store: Store | None,
+    cfg: ScoringConfig,
+    ttl_s: float | None = None,
+) -> JsonClient:
+    dc = cfg.discovery
+    return JsonClient(
+        name,
+        base,
+        min_interval_s=interval,
+        timeout_s=dc.timeout_s,
+        cache=_cache(store, cfg),
+        cache_ttl_s=dc.cache_ttl_days * _SECONDS_PER_DAY if ttl_s is None else ttl_s,
+    )
+
+
+def make_clients(
+    store: Store | None, cfg: ScoringConfig = DEFAULT_CONFIG
+) -> tuple[LastFm | None, GetSongBpm | None, DeezerPreviews | None]:
+    """Clients for whatever is available: Last.fm and GetSongBPM need the user's keys,
+    Deezer previews need the `audio` extra."""
+    dc = cfg.discovery
+    lastfm_key, bpm_key = get_key("lastfm"), get_key("getsongbpm")
+    lfm = (
+        LastFm(_client("Last.fm", dc.lastfm_base, dc.lastfm_min_interval_s, store, cfg), lastfm_key)
+        if lastfm_key
+        else None
+    )
+    bpm = (
+        GetSongBpm(
+            _client("GetSongBPM", dc.getsongbpm_base, dc.getsongbpm_min_interval_s, store, cfg),
+            bpm_key,
+        )
+        if bpm_key
+        else None
+    )
+    return lfm, bpm, make_previews(store, cfg)
+
+
+def make_previews(
+    store: Store | None, cfg: ScoringConfig = DEFAULT_CONFIG
+) -> DeezerPreviews | None:
+    """Deezer preview analysis, or None without the `audio` extra."""
+    if not preview.available():
+        return None
+    dc = cfg.discovery
+    ttl = dc.deezer_cache_minutes * _SECONDS_PER_MINUTE
+    client = _client("Deezer", dc.deezer_base, dc.deezer_min_interval_s, store, cfg, ttl)
+    return DeezerPreviews(client, _cache(store, cfg), cfg)
+
+
 def make_sources(
     store: Store | None, cfg: ScoringConfig = DEFAULT_CONFIG
 ) -> tuple[LastFm, GetSongBpm | None]:
-    """Clients for the configured services. Last.fm is required; GetSongBPM is optional."""
-    dc = cfg.discovery
-    lastfm_key = get_key("lastfm")
-    if not lastfm_key:
+    """Clients for discovery. Last.fm is required; GetSongBPM is optional."""
+    lfm, bpm, _ = make_clients(store, cfg)
+    if lfm is None:
         raise DiscoveryUnavailable(
             "a Last.fm API key is needed: create one at https://www.last.fm/api/account/create "
             "and save it with 'setsmith keys set lastfm YOUR_KEY'"
         )
-    cache = _StoreCache(store, dc.cache_max_entries) if store is not None else None
-    ttl = dc.cache_ttl_days * _SECONDS_PER_DAY
-
-    def client(name: str, base: str, interval: float) -> JsonClient:
-        return JsonClient(
-            name,
-            base,
-            min_interval_s=interval,
-            timeout_s=dc.timeout_s,
-            cache=cache,
-            cache_ttl_s=ttl,
-        )
-
-    lfm = LastFm(client("Last.fm", dc.lastfm_base, dc.lastfm_min_interval_s), lastfm_key)
-    bpm_key = get_key("getsongbpm")
-    bpm = (
-        GetSongBpm(client("GetSongBPM", dc.getsongbpm_base, dc.getsongbpm_min_interval_s), bpm_key)
-        if bpm_key
-        else None
-    )
     return lfm, bpm
 
 
@@ -224,6 +287,12 @@ def identity(artist: str, title: str, *, packed: bool = True) -> tuple[frozenset
     return frozenset(artists), clean_title(title)
 
 
+def bare_title(title: str) -> str:
+    """The title without version suffixes, brackets or "feat.", for searching services."""
+    title = remove_feat_groups(_strip_dash_version(title))
+    return _FEAT_RE.sub("", _ANY_PARENS_RE.sub("", title)).strip()
+
+
 def seed_query(track: Track) -> tuple[str, str]:
     """Artist and title to ask Last.fm about: the first credited artist and the bare title
     (without version, remix or feat. brackets: Last.fm knows originals best)."""
@@ -242,6 +311,13 @@ def _song_key(artist: str, title: str) -> tuple[str, str]:
     return normalize_text(_artists_part(artist)), clean_title(title)
 
 
+def artists_match(ours: frozenset[str], theirs: frozenset[str]) -> bool:
+    """Any shared artist, tolerant of uploader suffixes: "moblack" matches "moblack records"."""
+    return any(
+        a == o or o.startswith(a + " ") or a.startswith(o + " ") for a in ours for o in theirs
+    )
+
+
 class _LibraryIndex:
     """Which songs the collection already has, tolerant of SoundCloud-style titles."""
 
@@ -257,12 +333,30 @@ class _LibraryIndex:
         owners = self.by_title.get(title)
         if not owners:
             return False
-        # "moblack" matches the uploader "moblack records"
-        return any(
-            a == o or o.startswith(a + " ") or a.startswith(o + " ")
-            for a in artists
-            for o in owners
-        )
+        return artists_match(artists, frozenset(owners))
+
+
+def _relevance(match: float, scene: float | None) -> float:
+    """Last.fm similarity combined with scene match (geometric mean: both must be high)."""
+    return match if scene is None else math.sqrt(match * scene)
+
+
+class _Scene:
+    """How similar artists are to the seed's artist, from Last.fm's similar-artist list."""
+
+    def __init__(self, seed_artists: frozenset[str], similar: list[tuple[str, float]]) -> None:
+        self.known = bool(similar)
+        self.by_name: dict[str, float] = {}
+        for artist, match in similar:
+            for name in artist_names(artist):
+                self.by_name[name] = max(self.by_name.get(name, 0.0), match)
+        self.by_name.update(dict.fromkeys(seed_artists, 1.0))
+
+    def match(self, candidate: LastFmTrack) -> float | None:
+        if not self.known:
+            return None
+        names, _ = identity(candidate.artist, candidate.title, packed=False)
+        return max((self.by_name.get(n, 0.0) for n in names), default=0.0)
 
 
 def _links(artist: str, title: str, lastfm_url: str) -> dict[str, str]:
@@ -293,6 +387,13 @@ def _genre_from_tags(tags: list[str], known: set[str], cfg: ScoringConfig) -> st
     return ""
 
 
+def artist_genre(
+    lfm: LastFm, artist: str, cfg: ScoringConfig = DEFAULT_CONFIG, style: StyleProfile | None = None
+) -> str:
+    """A dance-music genre from the artist's Last.fm tags, else ""."""
+    return _genre_from_tags(lfm.artist_tags(artist), _known_genres(cfg, style), cfg)
+
+
 def discover(
     collection: Collection,
     seed: Track,
@@ -303,6 +404,7 @@ def discover(
     top: int = 15,
     cfg: ScoringConfig = DEFAULT_CONFIG,
     on_progress: Callable[[str], None] | None = None,
+    previews: DeezerPreviews | None = None,
 ) -> DiscoveryResult:
     dc = cfg.discovery
     result = DiscoveryResult(seed, [])
@@ -321,10 +423,22 @@ def discover(
     except ServiceError as exc:
         result.warnings.append(f"no similar tracks for {seed_artist} - {seed_title} ({exc})")
     try:
-        artists = lfm.similar_artists(seed_artist, dc.similar_artists)
+        similar = lfm.similar_artists(seed_artist, max(dc.scene_artists, dc.similar_artists))
     except ServiceError as exc:
-        result.warnings.append(f"no similar artists for {seed_artist} ({exc})")
-        artists = []
+        result.warnings.append(
+            f"no similar artists for {seed_artist} ({exc}), so results can't be checked "
+            "against its scene"
+        )
+        similar = []
+    else:
+        if not similar:
+            result.warnings.append(
+                f"Last.fm has no similar artists for {seed_artist}, so results can't be "
+                "checked against its scene"
+            )
+    seed_artists = identity(seed.artist, seed.title)[0] | artist_names(seed_artist)
+    scene = _Scene(seed_artists, similar)
+    artists = similar[: dc.similar_artists]
     for i, (artist, match) in enumerate(artists):
         progress(f"top tracks by {artist} ({i + 1}/{len(artists)})")
         try:
@@ -344,25 +458,39 @@ def discover(
     fresh = [c for c in unique.values() if c not in library]
     result.in_library = result.candidates - len(fresh)
 
+    # Most relevant first, so BPM/key lookups go to candidates from the seed's scene.
+    scenes = {id(c): scene.match(c) for c in fresh}
+
+    def off_scene(c: LastFmTrack) -> bool:
+        value = scenes[id(c)]
+        return value is not None and value < dc.min_scene_match
+
+    fresh.sort(key=lambda c: (off_scene(c), -_relevance(c.match, scenes[id(c)])))
+    # Keep results varied before spending lookups on a third track by the same artist.
+    per_artist: dict[str, int] = {}
+    varied_fresh = []
+    for cand in fresh:
+        who = normalize_text(cand.artist)
+        if per_artist.get(who, 0) < dc.max_per_artist:
+            per_artist[who] = per_artist.get(who, 0) + 1
+            varied_fresh.append(cand)
+    fresh = varied_fresh
+
     known = _known_genres(cfg, style)
+    batch = fresh[: dc.max_lookups]
     tags: dict[str, str] = {}
-    discoveries = []
-    for i, cand in enumerate(fresh[: dc.max_lookups]):
-        progress(
-            f"looking up {cand.artist} - {cand.title} ({i + 1}/{min(len(fresh), dc.max_lookups)})"
-        )
+    for cand in batch:
         if cand.artist not in tags:
+            progress(f"tags for {cand.artist}")
             tags[cand.artist] = _genre_from_tags(lfm.artist_tags(cand.artist), known, cfg)
-        info = None
-        if bpm is not None:
-            try:
-                info = bpm.lookup(cand.artist, cand.title)
-            except ServiceError as exc:
-                if result.looked_up == 0:  # a bad key fails on the very first call
-                    raise
-                result.warnings.append(str(exc))
-                bpm = None  # stop hammering a failing service
-            result.looked_up += 1
+    infos, notes = lookup_tempo_key(
+        [(c.artist, c.title) for c in batch], bpm, previews, cfg, on_progress
+    )
+    result.warnings += notes
+    if bpm is not None or previews is not None:
+        result.looked_up = len(batch)
+    discoveries = []
+    for i, (cand, info) in enumerate(zip(batch, infos, strict=True)):
         track = Track(
             id=f"discovered:{i + 1}",
             artist=cand.artist,
@@ -371,29 +499,56 @@ def discover(
             bpm=info.bpm if info else None,
             key_raw=info.camelot if info else None,
             camelot=info.camelot if info else None,
+            key_confidence=info.key_confidence if info else cfg.harmonic.default_tag_confidence,
         )
         if not (track.bpm and track.camelot):
             result.without_tempo_key += 1
         score = score_transition(seed, track, cfg=cfg, style=style)
-        links = _links(cand.artist, cand.title, cand.url)
-        if info and info.url.startswith(("https://", "http://")):
-            links["getsongbpm"] = info.url
+        links = {**_links(cand.artist, cand.title, cand.url), **(info.links if info else {})}
         fit = style.style_fit(track, cfg) if style else None
-        discoveries.append(Discovery(track, score, fit, cand.via, cand.match, links))
-
-    if bpm is None and get_key("getsongbpm") is None:
-        result.warnings.append(
-            "no GetSongBPM key: results have no BPM or key, so scores lean on genre only"
+        discoveries.append(
+            Discovery(
+                track,
+                score,
+                fit,
+                cand.via,
+                cand.match,
+                links,
+                scene=scenes[id(cand)],
+                off_scene=off_scene(cand),
+                bpm_key_source=info.source if info and (track.bpm or track.camelot) else None,
+            )
         )
-    # Best transitions first; known tempo/key only breaks ties (a known clash must not
-    # outrank an unknown), then Last.fm's similarity.
-    discoveries.sort(key=lambda d: (-round(d.score.total, 1), -d.has_tempo_and_key, -d.match))
-    per_artist: dict[str, int] = {}
-    varied = []
-    for d in discoveries:
-        who = normalize_text(d.track.artist)
-        if per_artist.get(who, 0) < dc.max_per_artist:
-            per_artist[who] = per_artist.get(who, 0) + 1
-            varied.append(d)
-    result.items = varied[:top]
+
+    if bpm is None and previews is None:
+        result.warnings.append(
+            "no GetSongBPM key and no audio extra for Deezer previews: results have no BPM or "
+            "key, so they are ranked by Last.fm similarity"
+        )
+
+    # A candidate finder: known good matches by score, then unknowns by relevance (no
+    # BPM/key means the score would be a guess), then known poor matches, then anything
+    # from outside the seed's scene.
+    def rank(d: Discovery) -> tuple[int, float]:
+        if d.off_scene:
+            return 3, -d.relevance
+        if not d.has_tempo_and_key:
+            return 1, -d.relevance
+        tier = 0 if d.score.total >= dc.good_match_score else 2
+        return tier, -d.score.total
+
+    discoveries.sort(key=rank)
+    result.items = discoveries[:top]
+    unknown = sum(1 for d in result.items if not d.has_tempo_and_key)
+    if unknown:
+        result.warnings.append(
+            f"{unknown} of {len(result.items)} results have no BPM/key data, so they are ranked "
+            "by Last.fm similarity; add them to Rekordbox to have them scored properly"
+        )
+    outside = sum(1 for d in result.items if d.off_scene)
+    if outside:
+        result.warnings.append(
+            f"{outside} of {len(result.items)} results are by artists outside {seed_artist}'s "
+            "scene on Last.fm, so they are listed last"
+        )
     return result

@@ -81,6 +81,16 @@ class LastFm:
             if t.get("name")
         ]
 
+    def search_track(self, query: str, limit: int) -> list[tuple[str, str]]:
+        """(artist, title) of songs matching free text, best first."""
+        data = self._call("track.search", track=query, limit=str(limit))
+        matches = data.get("results", {}).get("trackmatches", {}).get("track")
+        return [
+            (t["artist"], t["name"])
+            for t in _as_list(matches)
+            if isinstance(t.get("artist"), str) and t.get("artist") and t.get("name")
+        ]
+
     def artist_tags(self, artist: str) -> list[str]:
         try:
             data = self._call("artist.gettoptags", artist=artist, autocorrect="1")

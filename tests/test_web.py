@@ -156,3 +156,22 @@ def test_rejects_foreign_host_headers(client: TestClient) -> None:
     assert client.get("/api/info", headers={"host": "evil.example"}).status_code == 400
     assert client.get("/api/info", headers={"host": "localhost:8765"}).status_code == 200
     assert client.get("/api/info", headers={"host": "127.0.0.1:8765"}).status_code == 200
+
+
+def test_analyze_pasted_tracklist(client: TestClient, fixture_pool: Path) -> None:
+    col = load_collection(fixture_pool)
+    picked = [t for t in col.tracks.values() if t.artist and t.title][:3]
+    text = "\n".join(f"{i:02d}. {t.artist} - {t.title}" for i, t in enumerate(picked, 1))
+    text += "\n04. Nobody Known - Not In This Library\n05. ID - ID"
+    made = client.post("/api/livesets", json={"name": "Pasted", "tracklist": text})
+    assert made.status_code == 200, made.text
+    data = made.json()
+    assert data["stats"]["matched"] == 3 and data["stats"]["unmatched"] == 1
+    assert [m["track_id"] for m in data["liveset"]["matches"][:3]] == [t.id for t in picked]
+    assert data["liveset"]["transitions"]  # key moves and tempo changes between matches
+    listed = client.get("/api/livesets").json()
+    assert [(x["id"], x["name"]) for x in listed] == [(data["id"], "Pasted")]
+    assert client.get(f"/api/livesets/{data['id']}").status_code == 200
+    blank = client.post("/api/livesets", json={"name": "Empty", "tracklist": "\n\n"})
+    assert blank.status_code == 400
+    assert client.post("/api/livesets", json={"name": "", "tracklist": "A - B"}).status_code == 422

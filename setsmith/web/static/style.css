@@ -73,16 +73,17 @@ main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 60px; display: grid
 
 .form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px 16px; align-items: end; }
 .form-grid .wide { grid-column: span 2; }
+.form-grid .full { grid-column: 1 / -1; }
 .form-grid .actions { grid-column: 1 / -1; }
 label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; font-weight: 550; text-transform: uppercase; letter-spacing: 0.4px; }
 label.check { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; font-size: 13px; color: var(--text); }
 .inline { display: flex; gap: 6px; }
 .inline > * { min-width: 0; flex: 1; }
-input, select {
+input, select, textarea {
   width: 100%; font: inherit; color: var(--text); background: var(--panel-2);
   border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px;
 }
-input:focus, select:focus, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type="checkbox"] { width: auto; }
 .actions { display: flex; gap: 8px; justify-content: flex-end; align-items: center; }
 button, .button {
@@ -101,6 +102,8 @@ button:disabled { opacity: 0.6; cursor: progress; }
 }
 .results li { padding: 6px 8px; border-radius: 6px; cursor: pointer; color: var(--text); display: flex; justify-content: space-between; gap: 12px; }
 .results li:hover, .results li[aria-selected="true"] { background: var(--panel-2); }
+.results li.any-song { border-top: 1px solid var(--line); margin-top: 4px; font-style: italic; }
+.results li.any-song:first-child { border-top: 0; margin-top: 0; }
 
 .status { margin: 0; min-height: 1.2em; color: var(--muted); }
 .status.error { color: var(--bad); }
@@ -154,3 +157,4 @@ a { color: var(--accent); }
 .timeline .energy-dot { fill: var(--accent); }
 .timeline .target { fill: none; stroke: var(--target); stroke-width: 1.5; stroke-dasharray: 5 4; }
 .timeline .legend text { fill: var(--muted); font-size: 11px; }
+textarea { resize: vertical; font-family: inherit; line-height: 1.4; }

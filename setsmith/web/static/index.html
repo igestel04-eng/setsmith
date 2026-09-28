@@ -50,7 +50,7 @@
         </label>
         <label>Opening track
           <span class="search" data-search="start">
-            <input type="search" placeholder="Artist - Title (optional)" aria-label="Opening track">
+            <input type="search" placeholder="Any song: Artist - Title (optional)" aria-label="Opening track">
             <ul class="results" hidden></ul>
           </span>
         </label>
@@ -89,7 +89,7 @@
       <form id="suggest-form" class="panel form-grid" autocomplete="off">
         <label class="wide">Seed track
           <span class="search" data-search="seed">
-            <input type="search" placeholder="Artist - Title" aria-label="Seed track" required>
+            <input type="search" placeholder="Any song: Artist - Title, or search your library" aria-label="Seed track" required>
             <ul class="results" hidden></ul>
           </span>
         </label>
@@ -113,7 +113,8 @@
       <div id="discover-setup" class="panel" hidden>
         <h2>Set up discovery</h2>
         <p class="muted">Discover finds tracks you don't own through Last.fm (similar tracks and
-          artists) and GetSongBPM (BPM and key), using your own free API keys.</p>
+          artists) and GetSongBPM (BPM and key), using your own free API keys. BPM and key GetSongBPM
+          doesn't know are estimated from Deezer's 30-second previews (needs the audio extra).</p>
         <ol>
           <li>Create a Last.fm API key at <a href="https://www.last.fm/api/account/create" target="_blank" rel="noopener noreferrer">last.fm/api</a>, then run <code>setsmith keys set lastfm YOUR_KEY</code>.</li>
           <li>Optional but recommended, for BPM and key: get a key at <a href="https://getsongbpm.com/api" target="_blank" rel="noopener noreferrer">getsongbpm.com/api</a>, then run <code>setsmith keys set getsongbpm YOUR_KEY</code>.</li>
@@ -123,7 +124,7 @@
       <form id="discover-form" class="panel form-grid" autocomplete="off">
         <label class="wide">Seed track
           <span class="search" data-search="discover">
-            <input type="search" placeholder="Artist - Title" aria-label="Seed track for discovery" required>
+            <input type="search" placeholder="Any song: Artist - Title, or search your library" aria-label="Seed track for discovery" required>
             <ul class="results" hidden></ul>
           </span>
         </label>
@@ -142,11 +143,24 @@
     </section>
 
     <section id="tab-livesets" class="tab" role="tabpanel" hidden>
+      <form id="liveset-form" class="panel form-grid" autocomplete="off">
+        <label>Set name
+          <input name="name" required maxlength="120" placeholder="e.g. Keinemusik at Tulum">
+        </label>
+        <label class="full">Tracklist
+          <textarea name="tracklist" required rows="8" placeholder="Paste one track per line, e.g.&#10;01. Rampa - Champion&#10;[00:06:10] &amp;ME - The Rapture Pt.III&#10;ID - ID"></textarea>
+        </label>
+        <p class="muted small full">Paste a tracklist from a set you played or like. Setsmith matches
+          each line to your library and measures the key moves and tempo changes between them.
+          To measure real overlaps and cue points, analyze a recording in the terminal with
+          <code>setsmith liveset analyze … --audio set.mp3</code>.</p>
+        <div class="actions"><button type="submit" class="primary">Analyze set</button></div>
+      </form>
+      <p id="liveset-status" class="status" role="status"></p>
       <div class="panel">
         <label>Analyzed set
           <select id="liveset-select"><option value="">Choose...</option></select>
         </label>
-        <p class="muted small">Analyze sets with <code>setsmith liveset analyze</code>.</p>
       </div>
       <div id="liveset-result" hidden>
         <h2 id="liveset-name"></h2>

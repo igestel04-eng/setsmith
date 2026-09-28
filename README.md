@@ -4,7 +4,7 @@ Setsmith is a transition-aware DJ set builder for Rekordbox. It reads your Rekor
 
 Setsmith only reads your data. It never modifies your Rekordbox database or your audio files.
 
-Track discovery uses data from [Last.fm](https://www.last.fm) and BPM and key data from [GetSongBPM](https://getsongbpm.com).
+Track discovery uses data from [Last.fm](https://www.last.fm), BPM and key data from [GetSongBPM](https://getsongbpm.com), and BPM and key estimated from [Deezer](https://www.deezer.com)'s 30-second previews.
 
 **Status: all six phases (suggestions, set building, Rekordbox export, listening feedback, local audio analysis, DJ style profiles, live-set analysis, learned preferences, local web UI).**
 
@@ -112,6 +112,8 @@ After analysis, `suggest`, `build`, `info` and `feedback` use the results automa
 
 **allin1 (optional, untested here).** `--structure allin1` uses [allin1](https://github.com/mir-aidj/all-in-one)'s music-structure segments instead of the beat-grid method. It is not a declared extra, because its dependencies (PyTorch, NATTEN and madmom) don't install cleanly on every platform: madmom's PyPI release fails to build here. Install it yourself following allin1's instructions. Note that madmom's model files are licensed non-commercial (CC BY-NC-SA 4.0), and allin1 downloads pretrained models on first use.
 
+**Any song as the seed.** `--song` takes a song whether it's in your library or not: `--song "Francis Mercier - Kamili"`, or free text such as `--song "kamili francis mercier"`, which is searched on Last.fm (needs a Last.fm key; see [`discover`](#discover-find-tracks-you-dont-own-yet)). A song you own is used as is. For anything else, BPM and key come from GetSongBPM or are estimated from the Deezer preview (see [BPM and key for songs outside your library](#bpm-and-key-for-songs-outside-your-library)), and the genre from Last.fm. The same works in the web UI: type the song and pick **Use "..." (any song)**, or just press the button.
+
 ### `build`: build a whole set
 
 ```bash
@@ -161,7 +163,7 @@ Wrote 'Friday opener', 'Friday opener (alternates)' to setsmith.xml.
 
 **Filters:**
 
-- `--start "Artist - Title"` or `--start-id` fixes the opening track.
+- `--start "Artist - Title"` or `--start-id` fixes the opening track. `--start-song` takes any song, even one you don't own (looked up like `suggest --song`). The set is built to follow it, but it can't go into the exported playlist, which then starts at track 2: add the song in Rekordbox and put it first.
 - `--bpm-min` / `--bpm-max` limit the tempo range.
 - `--genre` limits genres. Repeat it for several; spellings are normalized, so `afro-house` matches `Afro House`.
 - `--exclude` leaves out a TrackID or `"Artist - Title"`. Repeat it for several.
@@ -283,22 +285,35 @@ The UI opens at <http://127.0.0.1:8765/> and has three tabs:
 
 - **Build a set** has the same options as `build`: length, curve, style, BPM range, opening track, genres and learned weights. It shows the set on a **timeline**. Tracks alternate between two deck lanes, colored by Camelot key. Each transition is a shaded overlap with its score between the lanes (hover for the type and length), and an energy strip on top plots the tracks' energy against the curve's targets. Click a track for its tags and the full reasoning for the transitions in and out, plus its alternates. **Export Rekordbox XML** downloads the set and alternates as a new file; **Report** opens the Markdown breakdown.
 - **Suggest next** searches as you type (any words from the artist or title), then ranks what to play next, with an optional style fit column and the reasoning behind each score.
-- **Discover** finds tracks you don't own that would mix well after a seed (see [`discover`](#discover-find-tracks-you-dont-own-yet)).
-- **Live sets** shows analyzed sets on the same timeline: where each track played in the recording, measured overlaps, cue points and the loudness curve.
+- **Discover** finds candidate tracks you don't own for after a seed, from the same scene (see [`discover`](#discover-find-tracks-you-dont-own-yet)).
+- **Live sets** analyzes a pasted tracklist (matched to your library: key moves and tempo changes between tracks) and shows analyzed sets on the same timeline. Sets analyzed with a recording in the terminal (`liveset analyze --audio`) also show where each track played, measured overlaps, cue points and the loudness curve.
 
 Safety: the server listens on 127.0.0.1 only by default. It reads your collection but never writes it. It only answers requests addressed to a local host name, which guards against DNS rebinding. It accepts style profiles by name only, never as a file path. Exports are built in a temporary folder and streamed to your browser as downloads. `--host` exposes the UI to your network with no login, and prints a warning (including the AGPL note when Essentia is installed). The API docs are at `/api/docs`.
 
 ### `discover`: find tracks you don't own yet
 
 ```bash
-uv run setsmith keys set lastfm YOUR_LASTFM_KEY           # required, free
-uv run setsmith keys set getsongbpm YOUR_GETSONGBPM_KEY   # optional, free: adds BPM and key
+uv run setsmith keys set lastfm                  # required, free; asks for the key without echoing it
+uv run setsmith keys set getsongbpm              # optional, free: adds BPM and key
+uv run setsmith keys set lastfm --from-clipboard # or: copy the key, then read it from the clipboard (macOS)
 uv run setsmith discover ~/Music/rekordbox.xml -t "Artist - Title" --style keinemusik
+uv run setsmith discover ~/Music/rekordbox.xml --song "Francis Mercier - Kamili"  # any song
 ```
 
 The web UI has the same feature in its **Discover** tab.
 
-For a seed track, Setsmith asks **Last.fm** for similar tracks and for popular tracks by similar artists, and drops anything already in your library. It then looks up BPM and key on **GetSongBPM** for the best matches (25 by default) and takes a genre from the artist's Last.fm tags. Each candidate is scored as a transition from your seed, with your style profile if you give one. Results link to the track on Last.fm and to searches on SoundCloud and Beatport, so you can listen and add or buy it. Nothing is downloaded.
+For a seed track, Setsmith asks **Last.fm** for similar tracks and for popular tracks by similar artists, and drops anything already in your library. For the most relevant candidates (25 by default) it gets BPM and key from **GetSongBPM**, or else estimates them from the **Deezer** preview, and takes a genre from the artist's Last.fm tags. Each candidate with a known BPM and key is scored as a transition from your seed, with your style profile if you give one. Estimated values show as `≈122` in the web UI. Results link to the track on Last.fm and Deezer and to searches on SoundCloud and Beatport, so you can listen and add or buy it.
+
+**Scene match.** Last.fm's similar tracks mean "listeners also played", so a crossover hit as the seed pulls in mainstream EDM and pop. Setsmith therefore also asks how similar each candidate's *artist* is to the seed's artist on Last.fm (the **Scene** column). For "Adam Port - Move", Rampa, MoBlack and &ME score high, while Martin Garrix scores 13% and Fred again.. isn't in the list at all. Candidates below 20% show as `other` and go to the bottom of the list.
+
+Discover is a **candidate finder**, not a set builder: it tells you what to listen to next, and **Suggest** and **Build** judge the mix once a track is in Rekordbox. Results come in four groups:
+
+1. Known BPM and key, and a good transition (score 60 or more), by score.
+2. Unknown BPM or key, by relevance: Last.fm similarity combined with scene match. These show `?` instead of a score, because Setsmith can't judge a mix it knows nothing about.
+3. Known BPM and key, but a poor transition (a key clash or a big tempo jump), by score.
+4. Artists outside the seed artist's scene, by relevance.
+
+GetSongBPM covers mainstream releases well but has little for underground dance music; the Deezer previews fill most of that gap. `--json` output marks each result with `bpm_key_known`, `bpm_key_source`, `scene_match`, `off_scene` and `rank_basis`.
 
 **Getting the keys (both free):**
 
@@ -307,9 +322,19 @@ For a seed track, Setsmith asks **Last.fm** for similar tracks and for popular t
 
 `setsmith keys set` saves keys to `~/.config/setsmith/keys.json`, readable only by you. The environment variables `SETSMITH_LASTFM_KEY` and `SETSMITH_GETSONGBPM_KEY` take precedence. `setsmith keys status` shows what is configured without printing the keys.
 
-Without a GetSongBPM key, results have no BPM or key and are scored mostly on genre. Known clashes still rank below unknowns: results are ordered by score, and known BPM and key only break ties.
+Without a GetSongBPM key, BPM and key come from Deezer previews only. Without the `audio` extra either, every result is unknown and ranked by Last.fm similarity.
 
-**Responsible use:** only official APIs are used, with your own keys and non-commercially, as Last.fm's terms require. Responses are cached in the Setsmith database for 7 days, with a size cap well under Last.fm's 100 MB limit. Requests are paced below both services' limits (GetSongBPM allows 3,000 an hour), so repeating a search is instant. Coverage depends on the services: brand-new or unreleased tracks may be missing from Last.fm or have no BPM or key on GetSongBPM. Beatport's API is partner-only, and SoundCloud's requires an Artist Pro subscription, so neither is used yet.
+#### BPM and key for songs outside your library
+
+GetSongBPM is asked first. For songs it doesn't know, Setsmith finds the track on Deezer's public API (no key needed), checking that the title and an artist match, and analyzes its official 30-second preview. This needs the `audio` extra (`uv sync --extra audio`); with the `essentia` extra, keys use Essentia's EDM profile.
+
+- **BPM:** three tempo estimators vote (librosa's beat tracker and Essentia's rhythm extractor and Percival estimator); the BPM is the mean of those that agree within 2%. If none agree, no BPM is given, because a wrong tempo is worse than none. Against Rekordbox on 60 tracks this gave a BPM for all 60, within 1.5 BPM for 54; most misses were DJ edits at a different tempo from the original. Tempos are folded into 88-176 BPM.
+- **Key:** an estimate. Checked against Rekordbox's own analysis of 40 tracks, Essentia matched the key exactly for about half, and was at most one step off on the Camelot wheel for two thirds. Estimated keys carry a key confidence of 0.6, so their harmonic scores are pulled toward neutral.
+- The preview is decoded in memory and discarded. Only the BPM, key and key strength are stored, cached per song for 180 days, so repeat searches need no Deezer requests. Deezer search results are kept for only 10 minutes, because the preview links in them expire. It's for personal use: Deezer's previews are meant for listening, so check their terms before using this beyond that.
+
+Once you add a track to Rekordbox, its analysis of the full track replaces these estimates.
+
+**Responsible use:** only official APIs are used, with your own keys and non-commercially, as Last.fm's terms require. Responses are cached in the Setsmith database for 7 days, with a size cap well under Last.fm's 100 MB limit. Requests are paced below both services' limits (GetSongBPM allows 3,000 an hour), so repeating a search is instant. Deezer requests stay under its 50 per 5 seconds, and previews are fetched only from Deezer's CDN. Coverage depends on the services: brand-new or unreleased tracks may be missing from Last.fm or Deezer. Beatport's API is partner-only, and SoundCloud's requires an Artist Pro subscription, so neither is used yet.
 
 ### `feedback`: log how transitions sounded on real decks
 
@@ -382,7 +407,7 @@ All of these numbers live in `SetConfig` and `CurveTemplate` in [`setsmith/scori
 
 ## Data Setsmith stores
 
-`analyze` (analysis results), `rekordbox import` (My Tags, history), `liveset` (analyzed sets), `learn` (learned weights), `discover` (7-day cache of API responses), `build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Commands that only read (`suggest`, `info`) never create the file. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
+`analyze` (analysis results), `rekordbox import` (My Tags, history), `liveset` (analyzed sets), `learn` (learned weights), `discover` (7-day cache of API responses; 180 days for BPM/key estimated from previews), `build` (pair-score cache) and `feedback` use one SQLite file: `$SETSMITH_DB` if set, else `~/.local/share/setsmith/setsmith.db` (or under `$XDG_DATA_HOME`). Pass `--db PATH` to use another file, or `--no-cache` to skip the cache for one build. Commands that only read (`suggest`, `info`) never create the file. Cached scores are keyed by a fingerprint of each track's tags plus the scoring config, so editing a track's tags or changing a weight recomputes only what changed. The file holds numbers and your notes, never audio. Delete it at any time to start fresh; your feedback is in the same file, so back it up first if you want to keep it.
 
 ## Importing sets into Rekordbox
 
@@ -410,8 +435,8 @@ Test fixtures use made-up artists and titles. Audio tests analyze tracks synthes
 ## Guardrails
 
 - Read-only access to your library. Output always goes to new files: Setsmith never writes to its input and only replaces files it created itself (or any file with `--force`).
-- No Spotify Web API audio features, which are unavailable to new apps since 27 November 2024. No scraping of 1001Tracklists: tracklists are pasted by you, and `TracklistProvider` in `setsmith/analysis/tracklist.py` is the extension point for a licensed source. No downloading from streaming platforms. Only local files you provide are analyzed, including set recordings you are entitled to process. Audio fingerprinting services such as ACRCloud are not integrated; if added, they would run only with your own credentials.
-- Only derived features are stored. Audio and full tracklists are never redistributed. Audio files are opened read-only and never copied.
+- No Spotify Web API audio features, which are unavailable to new apps since 27 November 2024. No scraping of 1001Tracklists: tracklists are pasted by you, and `TracklistProvider` in `setsmith/analysis/tracklist.py` is the extension point for a licensed source. No downloading from streaming platforms: tracks are never saved. The one exception to local-only analysis is Deezer's official 30-second previews, fetched from its public API and analyzed in memory for BPM and key (see [`discover`](#bpm-and-key-for-songs-outside-your-library)); the audio is never written to disk. Otherwise only local files you provide are analyzed, including set recordings you are entitled to process. Audio fingerprinting services such as ACRCloud are not integrated; if added, they would run only with your own credentials.
+- Only derived features are stored. Audio and full tracklists are never redistributed. Audio files are opened read-only and never copied; previews are never stored.
 - Style profiles describe musical parameters in our own words. They are labeled "inspired by" and do not imply endorsement by any artist.
 - Rekordbox's own database is only ever read by copying it, behind `--backed-up`, with a key you supply.
 

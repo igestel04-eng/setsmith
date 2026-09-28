@@ -13,7 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 import setsmith.cli as cli
-from setsmith.discovery import keys
+from setsmith.discovery import keys, preview
 from setsmith.discovery.discover import (
     DiscoveryUnavailable,
     discover,
@@ -26,6 +26,7 @@ from setsmith.discovery.http import JsonClient, ServiceError
 from setsmith.discovery.lastfm import LastFm
 from setsmith.model.collection import Collection
 from setsmith.model.track import Track
+from setsmith.scoring.weights import DEFAULT_CONFIG
 from setsmith.store import Store
 from setsmith.styles.profile import load_style
 
@@ -37,6 +38,8 @@ def isolated_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("SETSMITH_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.delenv("SETSMITH_LASTFM_KEY", raising=False)
     monkeypatch.delenv("SETSMITH_GETSONGBPM_KEY", raising=False)
+    # Deezer preview analysis is tested with fakes below; elsewhere it is off.
+    monkeypatch.setattr(preview, "available", lambda: False)
     return tmp_path / "config"
 
 
@@ -73,7 +76,11 @@ LASTFM = {
             ]
         }
     },
-    "artist.getsimilar": {"similarartists": {"artist": [{"name": "Tomas Lind", "match": "0.6"}]}},
+    # Also the scene: every candidate's artist is similar to the seed's artist.
+    "artist.getsimilar": {"similarartists": {"artist": [
+        {"name": "Nils Ødegaard", "match": "0.9"}, {"name": "Tomas Lind", "match": "0.6"},
+        {"name": "Ines Okafor", "match": "0.5"},
+    ]}},
     "artist.gettoptracks:Tomas Lind": {
         "toptracks": {"track": [{"name": "Velvet Drift", "url": "https://www.last.fm/music/Tomas+Lind/_/Velvet+Drift"}]}
     },
@@ -82,16 +89,16 @@ LASTFM = {
 
 GETSONGBPM = {
     # Lanterns: the search hit lacks tempo, so the client follows up with /song/.
-    "search/:song:lanterns artist:moana reyes": {
+    "search/:lanterns": {
         "search": [{"id": "L1", "title": "Lanterns", "artist": {"name": "Moana Reyes"}}]
     },
     "song/": {"song": {"id": "L1", "title": "Lanterns", "tempo": "123", "key_of": "Em",
                        "open_key": "2m", "uri": "https://getsongbpm.com/song/lanterns/L1"}},
-    "search/:song:night tide artist:ines okafor": {
+    "search/:night tide": {
         "search": [{"id": "N1", "title": "Night Tide", "artist": {"name": "Ines Okafor"},
                     "tempo": "140", "key_of": "C#m"}]
     },
-    "search/:song:velvet drift artist:tomas lind": {
+    "search/:velvet drift": {
         "search": [{"id": "V1", "title": "Something Else", "artist": {"name": "Other"},
                     "tempo": "122"}]
     },
@@ -115,7 +122,7 @@ def test_lastfm_parsing() -> None:
     lfm, *_ = sources()
     similar = lfm.similar_tracks("Kaya Sol", "Sunwater", 50)
     assert (similar[0].artist, similar[0].title) == ("Moana Reyes", "Lanterns")
-    assert lfm.similar_artists("Kaya Sol", 10) == [("Tomas Lind", 0.6)]
+    assert lfm.similar_artists("Kaya Sol", 10)[1] == ("Tomas Lind", 0.6)
     assert lfm.artist_tags("Anyone") == ["electronic", "Afro-House"]
     with pytest.raises(ServiceError, match="not found"):
         lfm.top_tracks("Unknown Artist", 5, 0.5)
@@ -152,9 +159,99 @@ def test_discover_ranks_new_tracks(collection_5: Collection) -> None:
     assert result.items[1].track.bpm is None  # no reliable BPM match
     assert (result.candidates, result.in_library) == (4, 1)
     assert result.looked_up == 3 and result.without_tempo_key == 2
-    assert not result.warnings  # "no result" is not an error
+    # "no result" is not an error, but unknown BPM/key is called out
+    assert len(result.warnings) == 1 and "2 of 3 results have no BPM/key data" in result.warnings[0]
     data = result.to_dict()
     assert {a["text"] for a in data["attribution"]} >= {"BPM and key data from GetSongBPM"}
+    known = [(i["bpm_key_known"], i["rank_basis"]) for i in data["results"]]
+    assert known == [
+        (False, "Last.fm similarity"),
+        (False, "Last.fm similarity"),
+        (True, "transition score"),
+    ]
+
+
+def test_discover_lists_other_scenes_last(collection_5: Collection) -> None:
+    # A crossover seed's "listeners also played" list pulls in mainstream hits; their
+    # artist is not similar to the seed's artist, so they go last however high the match.
+    responses = json.loads(json.dumps(LASTFM))
+    responses["track.getsimilar"]["similartracks"]["track"].append(
+        {"name": "Stadium Anthem", "artist": {"name": "Big Room Hero"}, "match": 1.0, "url": ""}
+    )
+    _, bpm, _, _ = sources()
+    lfm = LastFm(FakeClient(responses), "LFKEY")  # type: ignore[arg-type]
+    result = discover(collection_5, collection_5.tracks["101"], lfm, bpm, top=10)
+    assert [d.track.title for d in result.items][-1] == "Stadium Anthem"
+    last = result.to_dict()["results"][-1]
+    assert (last["scene_match"], last["off_scene"], last["rank_basis"]) == (
+        0.0,
+        True,
+        "different scene",
+    )
+    assert result.items[0].scene == pytest.approx(0.9)  # Glass Harbour by Nils Ødegaard
+    assert any(
+        "1 of 4 results are by artists outside Kaya Sol's scene" in w for w in result.warnings
+    )
+
+
+def test_discover_without_scene_data(collection_5: Collection) -> None:
+    responses = {k: v for k, v in LASTFM.items() if k != "artist.getsimilar"}
+    _, bpm, _, _ = sources()
+    lfm = LastFm(FakeClient(responses), "LFKEY")  # type: ignore[arg-type]
+    result = discover(collection_5, collection_5.tracks["101"], lfm, bpm, top=10)
+    assert [d.track.title for d in result.items] == ["Glass Harbour", "Night Tide"]
+    assert all(d.scene is None and not d.off_scene for d in result.items)
+    assert sum("can't be checked against its scene" in w for w in result.warnings) == 1
+
+
+def test_discover_estimates_from_deezer_previews(collection_5: Collection) -> None:
+    # GetSongBPM has no match for Velvet Drift or Glass Harbour; their Deezer previews do.
+    from setsmith.discovery.preview import DeezerPreviews
+
+    class Deezer:
+        def get(self, path: str, params: dict[str, str]) -> Any:
+            titles = {"Tomas Lind Velvet Drift": "Velvet Drift"}
+            title = titles.get(params.get("q", ""))
+            if title is None:
+                return {"data": []}
+            item = {"id": 7, "title": title, "artist": {"name": "Tomas Lind"}}
+            item["preview"] = "https://cdnt-preview.dzcdn.net/a.mp3"
+            item["link"] = "https://www.deezer.com/track/7"
+            return {"data": [item]}
+
+    previews = DeezerPreviews(
+        Deezer(),  # type: ignore[arg-type]
+        analyze=lambda data, cfg: (122.0, "8A", 0.9, "fake"),
+        fetch=lambda url, cfg: b"mp3",
+    )
+    lfm, bpm, _, _ = sources()
+    seed = collection_5.tracks["101"]  # 122 BPM, 8A
+    result = discover(collection_5, seed, lfm, bpm, top=10, previews=previews)
+    velvet = next(d for d in result.items if d.track.title == "Velvet Drift")
+    assert result.items[0] is velvet  # now a known good match
+    assert velvet.bpm_key_source == "estimated from the Deezer preview"
+    assert velvet.track.key_confidence == DEFAULT_CONFIG.discovery.preview_key_confidence
+    assert velvet.links["deezer"] == "https://www.deezer.com/track/7"
+    night = next(d for d in result.items if d.track.title == "Night Tide")
+    assert night.bpm_key_source == "GetSongBPM"
+
+
+def test_discover_known_good_match_ranks_first(collection_5: Collection) -> None:
+    # Velvet Drift is the least similar on Last.fm, but once GetSongBPM knows it mixes
+    # well with the seed (same BPM and key) it outranks the unscored candidates.
+    lfm, _, _, _ = sources()
+    responses = dict(GETSONGBPM)
+    responses["search/:velvet drift"] = {
+        "search": [{"id": "V2", "title": "Velvet Drift", "artist": {"name": "Tomas Lind"},
+                    "tempo": "122", "key_of": "Am"}]
+    }  # fmt: skip
+    bpm = GetSongBpm(FakeClient(responses), "BPMKEY")  # type: ignore[arg-type]
+    seed = collection_5.tracks["101"]
+    result = discover(collection_5, seed, lfm, bpm, top=10)
+    titles = [d.track.title for d in result.items]
+    assert titles == ["Velvet Drift", "Glass Harbour", "Night Tide"]
+    assert result.items[0].score.total >= DEFAULT_CONFIG.discovery.good_match_score
+    assert "1 of 3 results have no BPM/key data" in result.warnings[0]
 
 
 def test_discover_with_style(collection_5: Collection) -> None:
@@ -295,6 +392,9 @@ def test_cli_keys(isolated_keys: Path) -> None:
     assert status == {"lastfm": "file", "getsongbpm": None}
     assert "abc" not in runner.invoke(cli.app, ["keys", "status"]).output  # never printed
     assert runner.invoke(cli.app, ["keys", "set", "spotify", "x"]).exit_code == 2
+    prompted = runner.invoke(cli.app, ["keys", "set", "getsongbpm"], input="hiddenkey42\n")
+    assert prompted.exit_code == 0 and "hiddenkey42" not in prompted.output
+    assert keys.get_key("getsongbpm") == "hiddenkey42"
     placeholder = runner.invoke(cli.app, ["keys", "set", "lastfm", "PASTE_YOUR_API_KEY"])
     assert placeholder.exit_code == 2 and "placeholder" in placeholder.output
     odd = runner.invoke(cli.app, ["keys", "set", "lastfm", "not-a-hex-key"])
@@ -403,3 +503,37 @@ def test_nested_feat_and_fullwidth_separators(
     artist: str, title: str, artists: set[str], clean: str
 ) -> None:
     assert identity(artist, title) == (frozenset(artists), clean)
+
+
+def test_cli_keys_from_clipboard(isolated_keys: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import shutil
+    import subprocess
+
+    class Done:
+        def __init__(self, out: str) -> None:
+            self.stdout = out
+
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/pbpaste")
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Done("  clipkey123\n"))
+    result = runner.invoke(cli.app, ["keys", "set", "getsongbpm", "--from-clipboard"])
+    assert result.exit_code == 0 and "clipkey123" not in result.output
+    assert keys.get_key("getsongbpm") == "clipkey123"
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: Done("two words"))
+    bad = runner.invoke(cli.app, ["keys", "set", "getsongbpm", "--from-clipboard"])
+    assert bad.exit_code == 2 and "clipboard" in bad.output
+    assert keys.get_key("getsongbpm") == "clipkey123"  # unchanged
+
+
+def test_getsongbpm_band_name_variants() -> None:
+    client = FakeClient({"search/:innerbloom": {"search": [
+        {"id": "I1", "title": "Innerbloom", "artist": {"name": "RÜFÜS"}, "tempo": "122",
+         "open_key": "11m"},
+        {"id": "I2", "title": "Innerbloom", "artist": {"name": "THE SOUND BEE HD"}, "tempo": "138"},
+    ]}, "search/:yamore": {"search": [
+        {"id": "Y1", "title": "Yamore", "artist": {"name": "Salif Keita"}, "tempo": "160"},
+    ]}})  # fmt: skip
+    bpm = GetSongBpm(client, "k")  # type: ignore[arg-type]
+    innerbloom = bpm.lookup("RÜFÜS DU SOL", "Innerbloom")
+    assert innerbloom is not None and innerbloom.bpm == 122.0  # older band name accepted
+    assert bpm.lookup("MoBlack", "Yamore") is None  # a different artist's recording
+    assert client.calls[0][1] == {"api_key": "k", "type": "song", "lookup": "innerbloom"}

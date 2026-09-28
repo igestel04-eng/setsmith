@@ -34,7 +34,12 @@ def _similar(a: str, b: str) -> float:
     a, b = strip_versions(normalize_text(a)), strip_versions(normalize_text(b))
     if not a or not b:
         return 0.0
-    return 1.0 if a == b else SequenceMatcher(None, a, b).ratio()
+    if a == b:
+        return 1.0
+    # A band's shorter or older name ("rufus" / "rufus du sol") counts as a match.
+    if a.startswith(b + " ") or b.startswith(a + " "):
+        return _MIN_ARTIST_SIMILARITY
+    return SequenceMatcher(None, a, b).ratio()
 
 
 def _parse_song(item: dict[str, Any]) -> SongInfo:
@@ -48,12 +53,13 @@ class GetSongBpm:
         self.api_key = api_key
 
     def lookup(self, artist: str, title: str) -> SongInfo | None:
-        """Best match for artist + title, or None. Fields may still be missing."""
-        song, who = strip_versions(normalize_text(title)), normalize_text(artist)
-        data = self.client.get(
-            "search/",
-            {"api_key": self.api_key, "type": "both", "lookup": f"song:{song} artist:{who}"},
-        )
+        """Best match for artist + title, or None. Fields may still be missing.
+
+        Searches by title only and picks the artist from the results: the API's combined
+        "song:... artist:..." lookup finds nothing once either part has several words.
+        """
+        song = strip_versions(normalize_text(title))
+        data = self.client.get("search/", {"api_key": self.api_key, "type": "song", "lookup": song})
         if isinstance(data, dict) and "error" in data:
             message = str(data["error"])
             if "no result" in message.lower():
