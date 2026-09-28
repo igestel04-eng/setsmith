@@ -33,7 +33,15 @@ def test_info(client: TestClient) -> None:
     info = client.get("/api/info").json()
     assert info["tracks"] == 300
     assert info["curves"] == ["warm_up", "peak_time", "closing", "journey"]
-    assert {s["key"] for s in info["styles"]} == {"brunello", "franky_rizardo", "keinemusik"}
+    kinds = {s["key"]: s["kind"] for s in info["styles"]}
+    assert {k for k, kind in kinds.items() if kind == "artist"} == {
+        "brunello",
+        "franky_rizardo",
+        "keinemusik",
+    }
+    assert {"afro_house", "tech_house", "deep_house"} <= {
+        k for k, v in kinds.items() if v == "genre"
+    }
     assert info["learned_available"] is False
 
 

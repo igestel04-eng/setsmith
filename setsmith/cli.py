@@ -35,6 +35,7 @@ from setsmith.analysis.learn import (
 )
 from setsmith.analysis.liveset import LiveSet, analyze_liveset, compute_stats, draft_profile
 from setsmith.analysis.tracklist import load_tracklist, match_tracklist
+from setsmith.discovery.artiststyle import estimate_artist_style, save_artist_style
 from setsmith.discovery.discover import ATTRIBUTIONS as DISCOVERY_ATTRIBUTIONS
 from setsmith.discovery.discover import (
     Discovery,
@@ -1204,6 +1205,7 @@ def styles_list(as_json: JsonOpt = False) -> None:
                 {
                     "key": e.key,
                     "name": p.name if p else None,
+                    "kind": p.kind if p else None,
                     "path": str(e.path),
                     "builtin": e.builtin,
                     "error": problem or None,
@@ -1212,19 +1214,69 @@ def styles_list(as_json: JsonOpt = False) -> None:
             ]
         )
         return
-    table = Table("Key", "Name", "BPM", "Curve", "Source", pad_edge=False)
+    table = Table("Key", "Name", "Kind", "BPM", "Curve", "Source", pad_edge=False)
     for entry, profile, problem in entries:
         source = "built-in" if entry.builtin else str(entry.path)
         if profile is None:
-            table.add_row(entry.key, Text(problem, style="red"), "", "", source)
+            table.add_row(entry.key, Text(problem, style="red"), "", "", "", source)
             continue
         lo, hi = profile.bpm_band
         curve = profile.energy_curve if isinstance(profile.energy_curve, str) else "custom"
-        table.add_row(entry.key, profile.name, f"{lo:g}-{hi:g}", curve, source)
+        table.add_row(entry.key, profile.name, profile.kind, f"{lo:g}-{hi:g}", curve, source)
     out.print(table)
     out.print(
-        f"[dim]Your own profiles go in {user_styles_dir()} (see 'setsmith styles copy').[/dim]"
+        f"[dim]Your own profiles go in {user_styles_dir()} (see 'setsmith styles copy'), "
+        "or make one for any artist with 'setsmith styles artist NAME'.[/dim]"
     )
+
+
+@styles_app.command("artist")
+def styles_artist(
+    artist: Annotated[str, typer.Argument(help='Any artist, e.g. "Black Coffee".')],
+    collection: Annotated[
+        Path | None,
+        typer.Option(
+            "--collection",
+            exists=True,
+            dir_okay=False,
+            help="Rekordbox XML export: your genre tags for the artist pick the genre style.",
+        ),
+    ] = None,
+    db: DbOpt = None,
+    as_json: JsonOpt = False,
+) -> None:
+    """Make a style profile for any artist, estimated from their most popular tracks.
+
+    Tempo range and minor/major balance come from the artist's top tracks on Last.fm
+    (BPM/key from GetSongBPM or Deezer previews); mixing habits come from the matching
+    genre style. The profile is saved to your styles folder: use it with --style, and
+    edit it to match what you hear.
+    """
+    col = load_collection(collection) if collection else Collection({})
+    try:
+        with Store(db) as store, out.status("[dim]estimating the style...[/dim]") as spinner:
+            style = estimate_artist_style(
+                artist, col, store,
+                on_progress=None if as_json else lambda m: spinner.update(f"[dim]{m}...[/dim]"),
+            )  # fmt: skip
+    except DiscoveryUnavailable as exc:
+        err.print(f"[yellow]{exc}[/yellow]")
+        raise typer.Exit(EXIT_LOAD_ERROR) from exc
+    except (ServiceError, ValueError) as exc:
+        if as_json:
+            _emit_json({"error": str(exc)})
+        else:
+            err.print(f"[red]Could not make a style for {artist!r}:[/red] {exc}")
+        raise typer.Exit(EXIT_TRACK_NOT_FOUND) from exc
+    key, path = save_artist_style(style)
+    if as_json:
+        _emit_json({"key": key, "path": str(path), **style.to_dict()})
+        return
+    p = style.profile
+    out.print(f"[bold]{p.name}[/bold]  [dim](an estimate, not endorsed by the artist)[/dim]")
+    out.print(p.description, highlight=False)
+    out.print(f"Similar artists: {', '.join(p.reference_artists[1:]) or '-'}", highlight=False)
+    out.print(f"Saved to [bold]{path}[/bold]; use it with [bold]--style {key}[/bold].")
 
 
 @styles_app.command("show")

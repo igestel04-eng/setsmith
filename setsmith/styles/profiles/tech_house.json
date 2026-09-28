@@ -1,0 +1,47 @@
+{
+  "name": "Tech House",
+  "description": "Groove-led, percussive club house with punchy drums and quick, energetic mixing.",
+  "kind": "genre",
+  "bpm_band": [
+    124,
+    130
+  ],
+  "bpm_preferred": 126,
+  "max_tempo_drift_bpm": 4,
+  "key_mode_preference": {
+    "minor": 0.7,
+    "major": 0.3
+  },
+  "allowed_key_moves": {
+    "same": 1.0,
+    "adjacent": 0.9,
+    "relative": 0.8,
+    "energy_boost": 0.7,
+    "semitone_lift": 0.4,
+    "diagonal": 0.4
+  },
+  "energy_curve": "peak_time",
+  "genre_weights": {
+    "tech house": 1.0,
+    "house": 0.7,
+    "minimal / deep tech": 0.7,
+    "deep house": 0.4
+  },
+  "vocal_density": 0.4,
+  "transition_length_bars": {
+    "8": 0.2,
+    "16": 0.4,
+    "32": 0.35,
+    "64": 0.05
+  },
+  "transition_type_mix": {
+    "long_blend": 0.35,
+    "cut": 0.15,
+    "echo_out": 0.1,
+    "filter_sweep": 0.2,
+    "drop_swap": 0.2
+  },
+  "sources": [
+    "Setsmith defaults: tempo ranges and mixing habits common in the genre. Edit to taste."
+  ]
+}

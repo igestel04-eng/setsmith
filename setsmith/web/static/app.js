@@ -612,6 +612,63 @@ async function showLiveset(id) {
   setChildren($("#liveset-table"), head, el("tbody", {}, rows));
 }
 
+// ---------------------------------------------------------------- styles
+
+const ANY_ARTIST = "__artist";
+
+function styleOption(s) {
+  return el("option", { value: s.key }, `${s.name} (${s.bpm_band[0]}-${s.bpm_band[1]})`);
+}
+
+// Every Style menu: None, genres, artists, and "Any artist..." to make a new one.
+function fillStyles(styles, selected = {}) {
+  document.querySelectorAll('select[name="style"]').forEach((select) => {
+    const keep = selected[select.form.id] ?? select.value;
+    setChildren(select,
+      el("option", { value: "" }, "None"),
+      el("optgroup", { label: "Genres" }, styles.filter((s) => s.kind === "genre").map(styleOption)),
+      el("optgroup", { label: "Artists (inspired by)" },
+        styles.filter((s) => s.kind !== "genre").map(styleOption),
+        el("option", { value: ANY_ARTIST }, "Any artist...")));
+    select.value = keep && keep !== ANY_ARTIST ? keep : "";
+  });
+}
+
+// "Any artist...": a small inline form under the menu estimates and saves a style.
+function initArtistStyles() {
+  document.querySelectorAll('select[name="style"]').forEach((select) => {
+    const input = el("input", { placeholder: "Artist, e.g. Black Coffee", "aria-label": "Artist for a new style" });
+    const button = el("button", { type: "button" }, "Make style");
+    const note = el("span", { class: "muted small" });
+    const box = el("span", { class: "artist-style", hidden: true }, input, button, note);
+    select.after(box);
+    select.addEventListener("change", () => {
+      box.hidden = select.value !== ANY_ARTIST;
+      if (!box.hidden) input.focus();
+    });
+    button.addEventListener("click", async () => {
+      const artist = input.value.trim();
+      if (!artist) return;
+      button.disabled = true;
+      note.textContent = " Looking at their popular tracks (up to a minute)...";
+      try {
+        const made = await api("/api/styles/artist", { method: "POST", body: JSON.stringify({ artist }) });
+        const info = await api("/api/info");
+        fillStyles(info.styles, { [select.form.id]: made.key });
+        box.hidden = true;
+        note.textContent = "";
+        input.value = "";
+        const status = select.form.nextElementSibling;
+        if (status && status.classList.contains("status")) status.textContent = `${made.name}: ${made.description} Saved to your styles.`;
+      } catch (err) {
+        note.textContent = ` ${err.message}`;
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
 // ---------------------------------------------------------------- start
 
 async function init() {
@@ -629,9 +686,8 @@ async function init() {
     curve.append(el("option", { value: "" }, "Style's curve, else journey"));
     info.curves.forEach((c) => curve.append(el("option", { value: c }, c.replace("_", " "))));
     curve.append(el("option", { value: "__custom" }, "Custom..."));
-    document.querySelectorAll('select[name="style"]').forEach((select) => {
-      info.styles.forEach((s) => select.append(el("option", { value: s.key }, `${s.name} (${s.bpm_band[0]}-${s.bpm_band[1]})`)));
-    });
+    fillStyles(info.styles);
+    initArtistStyles();
     const discovery = info.discovery || {};
     $("#discover-setup").hidden = Boolean(discovery.lastfm);
     $("#discover-form").hidden = !discovery.lastfm;

@@ -46,6 +46,8 @@ class StyleProfile(BaseModel):
 
     name: str
     description: str
+    # "artist": inspired by a DJ or artist; "genre": typical of a genre.
+    kind: Literal["artist", "genre"] = "artist"
     bpm_band: tuple[float, float]
     bpm_preferred: float
     max_tempo_drift_bpm: float = Field(gt=0)

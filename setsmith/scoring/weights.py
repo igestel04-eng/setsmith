@@ -316,6 +316,17 @@ class StyleConfig(_Config):
     bpm_falloff_bpm: float = 4.0  # BPM fit falls from 1 at the band edge to 0 this far out
     long_blend_64_min_share: float = 0.25  # profile "prefers long blends" at this 64-bar share
     mix_tolerance: float = 0.02  # transition mixes must sum to 1 within this
+    # Styles estimated for any artist from their most popular tracks (Last.fm), with
+    # BPM/key from GetSongBPM or Deezer previews; mixing habits come from the matching
+    # genre style.
+    artist_tracks: int = 12  # popular tracks measured
+    artist_min_bpms: int = 3  # tempos needed for a BPM band
+    # Band edges: popular tracks include the odd slow or fast production, left out here.
+    artist_bpm_percentiles: tuple[float, float] = (20.0, 80.0)
+    artist_bpm_margin: float = 1.0  # widened by this on each side
+    artist_bpm_step: float = 0.5  # rounded to this
+    artist_reference_count: int = 4  # similar artists listed as references
+    artist_fallback_genre_style: str = "house"  # when no genre style matches the artist
 
 
 class VocalTagConfig(_Config):

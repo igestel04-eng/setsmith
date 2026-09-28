@@ -25,6 +25,7 @@ from starlette.background import BackgroundTask
 from setsmith import __version__
 from setsmith.analysis.liveset import LiveSet, analyze_liveset, compute_stats
 from setsmith.analysis.tracklist import match_tracklist, parse_tracklist
+from setsmith.discovery.artiststyle import estimate_artist_style, save_artist_style
 from setsmith.discovery.discover import (
     DiscoveryUnavailable,
     discover,
@@ -87,6 +88,10 @@ class BuildBody(BaseModel):
     exclude_ids: list[str] = []
     learned: bool = False
     name: str | None = Field(default=None, max_length=120)
+
+
+class ArtistStyleBody(BaseModel):
+    artist: str = Field(min_length=1, max_length=120)
 
 
 class LiveSetBody(BaseModel):
@@ -185,7 +190,13 @@ def create_app(
                 continue
             curve = p.energy_curve if isinstance(p.energy_curve, str) else "custom"
             styles.append(
-                {"key": entry.key, "name": p.name, "bpm_band": p.bpm_band, "curve": curve}
+                {
+                    "key": entry.key,
+                    "name": p.name,
+                    "kind": p.kind,
+                    "bpm_band": p.bpm_band,
+                    "curve": curve,
+                }
             )
         return {
             "version": __version__,
@@ -401,6 +412,26 @@ def create_app(
             return []
         with Store(db_path) as store:
             return [{"id": i, "name": n, "created_at": c} for i, n, c in store.list_livesets()]
+
+    @app.post("/api/styles/artist")
+    def make_artist_style(body: ArtistStyleBody) -> dict[str, Any]:
+        """Estimate a style for any artist and save it to the user's styles folder."""
+        try:
+            with Store(state.db or default_db_path()) as store:
+                style = estimate_artist_style(body.artist, state.collection, store)
+        except (DiscoveryUnavailable, ValueError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except ServiceError as exc:
+            raise HTTPException(502, str(exc)) from exc
+        key, _ = save_artist_style(style)
+        p = style.profile
+        return {
+            "key": key,
+            "name": p.name,
+            "kind": p.kind,
+            "bpm_band": p.bpm_band,
+            "description": p.description,
+        }
 
     @app.post("/api/livesets")
     def analyze_pasted(body: LiveSetBody) -> dict[str, Any]:
