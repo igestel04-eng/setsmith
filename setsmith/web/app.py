@@ -24,9 +24,15 @@ from starlette.background import BackgroundTask
 
 from setsmith import __version__
 from setsmith.analysis.liveset import LiveSet, compute_stats
-from setsmith.discovery.discover import DiscoveryUnavailable, discover, make_sources
+from setsmith.discovery.discover import (
+    DiscoveryUnavailable,
+    discover,
+    make_previews,
+    make_sources,
+)
 from setsmith.discovery.http import ServiceError
 from setsmith.discovery.keys import get_key
+from setsmith.discovery.song import Song, library_ids, resolve_song, start_warning, with_track
 from setsmith.graph.build import config_key, track_fingerprint
 from setsmith.io.rekordbox_xml import ExportError, PlaylistSpec, export_playlists, load_collection
 from setsmith.library import enrich, learned_config
@@ -58,6 +64,7 @@ class BuildBody(BaseModel):
     curve: str | None = None  # template name or custom points; default: style's, else journey
     style: str | None = None  # a key from /api/styles
     start_id: str | None = None
+    start_song: str | None = Field(default=None, max_length=200)  # any song, see /api/song
     bpm_min: float | None = None
     bpm_max: float | None = None
     genres: list[str] = []
@@ -113,6 +120,31 @@ def _cfg(state: _State, learned: bool) -> ScoringConfig:
     if cfg is None:
         raise HTTPException(400, "nothing learned yet; run 'setsmith learn' first")
     return cfg
+
+
+def _song(state: _State, query: str, cfg: ScoringConfig) -> Song:
+    try:
+        with Store(state.db or default_db_path()) as store:
+            return resolve_song(query, state.collection, store, cfg)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except ServiceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+def _seed(
+    state: _State, track_id: str | None, song: str | None, cfg: ScoringConfig
+) -> tuple[Track, Song | None]:
+    """The seed: a library track by TrackID, or any song."""
+    if song:
+        found = _song(state, song, cfg)
+        return found.track, found
+    if not track_id:
+        raise HTTPException(400, "give track_id or song")
+    seed = state.collection.tracks.get(track_id)
+    if seed is None:
+        raise HTTPException(404, f"no track with TrackID {track_id!r}")
+    return seed, None
 
 
 def create_app(
@@ -180,22 +212,21 @@ def create_app(
 
     @app.get("/api/suggest")
     def suggest(
-        track_id: str,
+        track_id: str | None = None,
+        song: str | None = Query(None, max_length=200),
         top: int = Query(10, ge=1, le=50),
         energy_delta: float = Query(0.0, ge=-9, le=9),
         style: str | None = None,
         learned: bool = False,
     ) -> dict[str, Any]:
-        seed = state.collection.tracks.get(track_id)
-        if seed is None:
-            raise HTTPException(404, f"no track with TrackID {track_id!r}")
         profile = _style(style)
+        cfg = _cfg(state, learned)
+        seed, found = _seed(state, track_id, song, cfg)
         results = suggest_next(
-            state.collection, seed, top=top, energy_target=energy_delta, style=profile,
-            cfg=_cfg(state, learned),
+            state.collection, seed, top=top, energy_target=energy_delta, style=profile, cfg=cfg,
         )  # fmt: skip
         return {
-            "seed": seed.summary(),
+            "seed": found.to_dict() if found else {**seed.summary(), "in_library": True},
             "style": profile.name if profile else None,
             "suggestions": [
                 {
@@ -213,27 +244,31 @@ def create_app(
 
     @app.get("/api/discover")
     def discover_endpoint(
-        track_id: str,
+        track_id: str | None = None,
+        song: str | None = Query(None, max_length=200),
         top: int = Query(15, ge=1, le=50),
         style: str | None = None,
         learned: bool = False,
     ) -> dict[str, Any]:
-        seed = state.collection.tracks.get(track_id)
-        if seed is None:
-            raise HTTPException(404, f"no track with TrackID {track_id!r}")
         profile = _style(style)
         cfg = _cfg(state, learned)
+        seed, found = _seed(state, track_id, song, cfg)
         try:
             with Store(state.db or default_db_path()) as store:
                 lfm, bpm = make_sources(store, cfg)
-                result = discover(state.collection, seed, lfm, bpm, style=profile, top=top, cfg=cfg)
+                result = discover(
+                    state.collection, seed, lfm, bpm, style=profile, top=top, cfg=cfg,
+                    previews=make_previews(store, cfg),
+                )  # fmt: skip
         except DiscoveryUnavailable as exc:
             raise HTTPException(400, str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(400, str(exc)) from exc
         except ServiceError as exc:
             raise HTTPException(502, str(exc)) from exc
-        return result.to_dict()
+        data = result.to_dict()
+        data["seed"] = found.to_dict() if found else {**seed.summary(), "in_library": True}
+        return data
 
     @app.post("/api/build")
     def build(body: BuildBody) -> dict[str, Any]:
@@ -249,11 +284,18 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(400, f"curve: {exc}") from exc
         genres = frozenset(g for item in body.genres for g in cfg.genre.normalize(item))
+        collection, start_id, song_warnings = state.collection, body.start_id or None, []
+        if body.start_song:
+            found = _song(state, body.start_song, cfg)
+            start_id = found.track.id
+            if not found.in_library:
+                collection = with_track(collection, found.track)
+                song_warnings = [*found.warnings, start_warning(found.track)]
         request = SetRequest(
             curve=curve,
             minutes=body.minutes if body.tracks is None else None,
             track_count=body.tracks,
-            start_id=body.start_id or None,
+            start_id=start_id,
             bpm_min=body.bpm_min,
             bpm_max=body.bpm_max,
             genres=genres,
@@ -265,9 +307,10 @@ def create_app(
         key = config_key(cfg, profile)
         try:
             with Store(db_path) as store:
-                pool, _ = filter_pool(state.collection, request, cfg)
+                pool, _ = filter_pool(collection, request, cfg)
                 cache = store.load_pair_scores(key, {track_fingerprint(t) for t in pool})
-                gen, graph = generate_set(state.collection, request, cfg=cfg, cache=cache)
+                gen, graph = generate_set(collection, request, cfg=cfg, cache=cache)
+                gen.warnings[:0] = song_warnings
                 store.save_pair_scores(key, graph.new_scores)
         except SetGenerationError as exc:
             raise HTTPException(422, str(exc)) from exc
@@ -288,9 +331,9 @@ def create_app(
     @app.get("/api/sets/{set_id}/export")
     def export(set_id: str, alternates: bool = True) -> FileResponse:
         name, gen = state.get(set_id)
-        playlists = [PlaylistSpec(name, tuple(gen.track_ids))]
+        playlists = [PlaylistSpec(name, library_ids(gen.track_ids))]
         if alternates and gen.alternate_ids:
-            playlists.append(PlaylistSpec(f"{name} (alternates)", tuple(gen.alternate_ids)))
+            playlists.append(PlaylistSpec(f"{name} (alternates)", library_ids(gen.alternate_ids)))
         tmp = Path(tempfile.mkdtemp(prefix="setsmith-export-"))
         out = tmp / "setsmith.xml"
         try:

@@ -1,3 +1,4 @@
+import socket
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,17 @@ def isolated_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     db = tmp_path / "setsmith-test.db"
     monkeypatch.setenv("SETSMITH_DB", str(db))
     return db
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never reach real services: any outgoing connection fails the test."""
+
+    def refuse(*args: object, **kwargs: object) -> None:
+        raise AssertionError(f"a test tried to open a network connection: {args[:1]}")
+
+    monkeypatch.setattr(socket, "create_connection", refuse)
+    monkeypatch.setattr(socket.socket, "connect", refuse)
 
 
 @pytest.fixture

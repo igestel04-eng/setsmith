@@ -13,7 +13,7 @@ import pytest
 from typer.testing import CliRunner
 
 import setsmith.cli as cli
-from setsmith.discovery import keys
+from setsmith.discovery import keys, preview
 from setsmith.discovery.discover import (
     DiscoveryUnavailable,
     discover,
@@ -38,6 +38,8 @@ def isolated_keys(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("SETSMITH_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.delenv("SETSMITH_LASTFM_KEY", raising=False)
     monkeypatch.delenv("SETSMITH_GETSONGBPM_KEY", raising=False)
+    # Deezer preview analysis is tested with fakes below; elsewhere it is off.
+    monkeypatch.setattr(preview, "available", lambda: False)
     return tmp_path / "config"
 
 
@@ -74,7 +76,11 @@ LASTFM = {
             ]
         }
     },
-    "artist.getsimilar": {"similarartists": {"artist": [{"name": "Tomas Lind", "match": "0.6"}]}},
+    # Also the scene: every candidate's artist is similar to the seed's artist.
+    "artist.getsimilar": {"similarartists": {"artist": [
+        {"name": "Nils Ødegaard", "match": "0.9"}, {"name": "Tomas Lind", "match": "0.6"},
+        {"name": "Ines Okafor", "match": "0.5"},
+    ]}},
     "artist.gettoptracks:Tomas Lind": {
         "toptracks": {"track": [{"name": "Velvet Drift", "url": "https://www.last.fm/music/Tomas+Lind/_/Velvet+Drift"}]}
     },
@@ -116,7 +122,7 @@ def test_lastfm_parsing() -> None:
     lfm, *_ = sources()
     similar = lfm.similar_tracks("Kaya Sol", "Sunwater", 50)
     assert (similar[0].artist, similar[0].title) == ("Moana Reyes", "Lanterns")
-    assert lfm.similar_artists("Kaya Sol", 10) == [("Tomas Lind", 0.6)]
+    assert lfm.similar_artists("Kaya Sol", 10)[1] == ("Tomas Lind", 0.6)
     assert lfm.artist_tags("Anyone") == ["electronic", "Afro-House"]
     with pytest.raises(ServiceError, match="not found"):
         lfm.top_tracks("Unknown Artist", 5, 0.5)
@@ -163,6 +169,71 @@ def test_discover_ranks_new_tracks(collection_5: Collection) -> None:
         (False, "Last.fm similarity"),
         (True, "transition score"),
     ]
+
+
+def test_discover_lists_other_scenes_last(collection_5: Collection) -> None:
+    # A crossover seed's "listeners also played" list pulls in mainstream hits; their
+    # artist is not similar to the seed's artist, so they go last however high the match.
+    responses = json.loads(json.dumps(LASTFM))
+    responses["track.getsimilar"]["similartracks"]["track"].append(
+        {"name": "Stadium Anthem", "artist": {"name": "Big Room Hero"}, "match": 1.0, "url": ""}
+    )
+    _, bpm, _, _ = sources()
+    lfm = LastFm(FakeClient(responses), "LFKEY")  # type: ignore[arg-type]
+    result = discover(collection_5, collection_5.tracks["101"], lfm, bpm, top=10)
+    assert [d.track.title for d in result.items][-1] == "Stadium Anthem"
+    last = result.to_dict()["results"][-1]
+    assert (last["scene_match"], last["off_scene"], last["rank_basis"]) == (
+        0.0,
+        True,
+        "different scene",
+    )
+    assert result.items[0].scene == pytest.approx(0.9)  # Glass Harbour by Nils Ødegaard
+    assert any(
+        "1 of 4 results are by artists outside Kaya Sol's scene" in w for w in result.warnings
+    )
+
+
+def test_discover_without_scene_data(collection_5: Collection) -> None:
+    responses = {k: v for k, v in LASTFM.items() if k != "artist.getsimilar"}
+    _, bpm, _, _ = sources()
+    lfm = LastFm(FakeClient(responses), "LFKEY")  # type: ignore[arg-type]
+    result = discover(collection_5, collection_5.tracks["101"], lfm, bpm, top=10)
+    assert [d.track.title for d in result.items] == ["Glass Harbour", "Night Tide"]
+    assert all(d.scene is None and not d.off_scene for d in result.items)
+    assert sum("can't be checked against its scene" in w for w in result.warnings) == 1
+
+
+def test_discover_estimates_from_deezer_previews(collection_5: Collection) -> None:
+    # GetSongBPM has no match for Velvet Drift or Glass Harbour; their Deezer previews do.
+    from setsmith.discovery.preview import DeezerPreviews
+
+    class Deezer:
+        def get(self, path: str, params: dict[str, str]) -> Any:
+            titles = {"Tomas Lind Velvet Drift": "Velvet Drift"}
+            title = titles.get(params.get("q", ""))
+            if title is None:
+                return {"data": []}
+            item = {"id": 7, "title": title, "artist": {"name": "Tomas Lind"}}
+            item["preview"] = "https://cdnt-preview.dzcdn.net/a.mp3"
+            item["link"] = "https://www.deezer.com/track/7"
+            return {"data": [item]}
+
+    previews = DeezerPreviews(
+        Deezer(),  # type: ignore[arg-type]
+        analyze=lambda data, cfg: (122.0, "8A", 0.9, "fake"),
+        fetch=lambda url, cfg: b"mp3",
+    )
+    lfm, bpm, _, _ = sources()
+    seed = collection_5.tracks["101"]  # 122 BPM, 8A
+    result = discover(collection_5, seed, lfm, bpm, top=10, previews=previews)
+    velvet = next(d for d in result.items if d.track.title == "Velvet Drift")
+    assert result.items[0] is velvet  # now a known good match
+    assert velvet.bpm_key_source == "estimated from the Deezer preview"
+    assert velvet.track.key_confidence == DEFAULT_CONFIG.discovery.preview_key_confidence
+    assert velvet.links["deezer"] == "https://www.deezer.com/track/7"
+    night = next(d for d in result.items if d.track.title == "Night Tide")
+    assert night.bpm_key_source == "GetSongBPM"
 
 
 def test_discover_known_good_match_ranks_first(collection_5: Collection) -> None:

@@ -113,6 +113,15 @@ function initSearch(container) {
       if (!q) { list.hidden = true; return; }
       try {
         const rows = await api(`/api/tracks?q=${encodeURIComponent(q)}&limit=10`);
+        const anySong = el("li", {
+          role: "option",
+          class: "any-song",
+          onmousedown: (e) => {
+            e.preventDefault();
+            container.selectedId = null;
+            list.hidden = true;
+          },
+        }, el("span", {}, `Use "${q}" (any song)`), el("span", { class: "muted" }, "BPM/key looked up"));
         setChildren(list, ...rows.map((t) => el("li", {
           role: "option",
           onmousedown: (e) => {
@@ -121,12 +130,30 @@ function initSearch(container) {
             input.value = trackName(t);
             list.hidden = true;
           },
-        }, el("span", {}, trackName(t)), el("span", { class: "muted" }, `${fmt(t.bpm, 1)} · ${t.key || "?"}`))));
-        list.hidden = rows.length === 0;
+        }, el("span", {}, trackName(t)), el("span", { class: "muted" }, `${fmt(t.bpm, 1)} · ${t.key || "?"}`))), anySong);
+        list.hidden = false;
       } catch (err) { list.hidden = true; }
     }, 200);
   });
   input.addEventListener("blur", () => setTimeout(() => { list.hidden = true; }, 150));
+}
+
+// The picked library track, or else the typed text as any song (looked up by the server).
+function seedOf(selector) {
+  const container = $(selector);
+  if (container.selectedId) return { track_id: container.selectedId };
+  const text = $("input", container).value.trim();
+  return text ? { song: text } : null;
+}
+
+const EXTERNAL_ID = "external:song";
+
+function seedLine(seed) {
+  const base = `${trackName(seed)} (${fmt(seed.bpm, 1)} BPM, ${seed.key || "?"})`;
+  if (seed.in_library !== false) return base;
+  const source = seed.bpm_key_source ? `BPM/key ${seed.bpm_key_source}` : "no BPM/key found";
+  const notes = (seed.warnings || []).length ? ` Note: ${seed.warnings.join("; ")}` : "";
+  return `${base}, not in your library; ${source}.${notes}`;
 }
 
 // ---------------------------------------------------------------- timeline
@@ -234,7 +261,8 @@ function buildBody(form) {
     style: f.get("style") || null,
     bpm_min: num(f.get("bpm_min")),
     bpm_max: num(f.get("bpm_max")),
-    start_id: $('[data-search="start"]').selectedId || null,
+    start_id: seedOf('[data-search="start"]')?.track_id || null,
+    start_song: seedOf('[data-search="start"]')?.song || null,
     genres: String(f.get("genres") || "").split(",").map((g) => g.trim()).filter(Boolean),
     learned: f.get("learned") === "on",
     name: f.get("name") || null,
@@ -254,6 +282,7 @@ function showSetDetail(position, data) {
   );
   const prev = data.positions[position.position - 2];
   const parts = [el("h3", {}, `${position.position}. ${trackName(t)}`), dl];
+  if (t.id === EXTERNAL_ID) parts.push(el("p", { class: "muted" }, "Not in your library: add it in Rekordbox and put it first. The exported playlist starts at track 2; BPM and key here were looked up."));
   if (prev && prev.transition_to_next) {
     parts.push(el("h3", {}, `In from #${prev.position}: ${Math.round(prev.transition_to_next.total)}`), el("pre", {}, prev.explain.join("\n")));
   }
@@ -324,7 +353,7 @@ function renderSet(result) {
     const tr = p.transition_to_next;
     return el("tr", { onclick: () => select(i) },
       el("td", { class: "num" }, p.position),
-      el("td", { class: "track" }, trackName(p.track)),
+      el("td", { class: "track" }, trackName(p.track), p.track.id === EXTERNAL_ID ? el("span", { class: "muted" }, " (not in your library)") : null),
       el("td", { class: "num" }, fmt(p.track.bpm, 1)),
       el("td", {}, keyChip(p.track.key)),
       el("td", { class: "num" }, `${fmt(p.track.energy, 1)} (${fmt(p.target_energy, 1)})`),
@@ -350,7 +379,8 @@ function initBuild() {
     try {
       const result = await api("/api/build", { method: "POST", body: JSON.stringify(buildBody(form)) });
       renderSet(result);
-      status($("#build-status"), "");
+      const warnings = result.set.warnings || [];
+      status($("#build-status"), warnings.length ? `Note: ${warnings.join("; ")}` : "");
     } catch (err) {
       status($("#build-status"), `Could not build a set: ${err.message}`, true);
     } finally {
@@ -366,16 +396,16 @@ function initSuggest() {
   const form = $("#suggest-form");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const seed = $('[data-search="seed"]').selectedId;
-    if (!seed) { status($("#suggest-status"), "Pick a seed track from the list.", true); return; }
+    const seed = seedOf('[data-search="seed"]');
+    if (!seed) { status($("#suggest-status"), "Type a song, or pick one from your library.", true); return; }
     const f = new FormData(form);
-    const params = new URLSearchParams({ track_id: seed, top: "15", energy_delta: f.get("energy_delta") || "0" });
+    const params = new URLSearchParams({ ...seed, top: "15", energy_delta: f.get("energy_delta") || "0" });
     if (f.get("style")) params.set("style", f.get("style"));
     if (f.get("learned") === "on") params.set("learned", "true");
-    status($("#suggest-status"), "Scoring...");
+    status($("#suggest-status"), seed.song ? "Looking up the song, then scoring..." : "Scoring...");
     try {
       const data = await api(`/api/suggest?${params}`);
-      status($("#suggest-status"), `After ${trackName(data.seed)} (${fmt(data.seed.bpm, 1)} BPM, ${data.seed.key || "?"})${data.style ? `, style ${data.style}` : ""}`);
+      status($("#suggest-status"), `After ${seedLine(data.seed)}${data.style ? ` Style ${data.style}.` : ""}`);
       const styled = data.suggestions.some((s) => s.style_fit);
       const head = el("thead", {}, el("tr", {},
         el("th", { class: "num" }, "#"), el("th", {}, "Track"), el("th", { class: "num" }, "BPM"), el("th", {}, "Key"),
@@ -417,29 +447,36 @@ function renderAttribution(target, items) {
   setChildren(target, ...parts);
 }
 
+// BPM/key estimated from a Deezer preview rather than looked up in a catalog.
+function estimated(r) {
+  return Boolean(r.bpm_key_source) && r.bpm_key_source !== "GetSongBPM";
+}
+
 function initDiscover() {
   const form = $("#discover-form");
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const seed = $('[data-search="discover"]').selectedId;
-    if (!seed) { status($("#discover-status"), "Pick a seed track from the list.", true); return; }
+    const seed = seedOf('[data-search="discover"]');
+    if (!seed) { status($("#discover-status"), "Type a song, or pick one from your library.", true); return; }
     const f = new FormData(form);
-    const params = new URLSearchParams({ track_id: seed, top: "20" });
+    const params = new URLSearchParams({ ...seed, top: "20" });
     if (f.get("style")) params.set("style", f.get("style"));
     if (f.get("learned") === "on") params.set("learned", "true");
     const button = $("button[type=submit]", form);
     button.disabled = true;
-    status($("#discover-status"), "Asking Last.fm and GetSongBPM (the first search for a seed can take up to a minute)...");
+    status($("#discover-status"), "Asking Last.fm, then getting BPM and key from GetSongBPM and Deezer previews (the first search for a seed can take up to a minute)...");
     try {
       const data = await api(`/api/discover?${params}`);
       const notes = data.warnings.length ? ` Note: ${data.warnings.join("; ")}` : "";
       status($("#discover-status"),
-        `Last.fm suggested ${data.candidates} tracks (already in your library: ${data.in_library}).${notes}`);
+        `After ${seedLine(data.seed)} Last.fm suggested ${data.candidates} tracks (already in your library: ${data.in_library}).${notes}`);
       renderAttribution($("#discover-attribution"), data.attribution);
       const styled = data.results.some((r) => r.style_fit);
+      const scened = data.results.some((r) => r.scene_match !== null);
       const head = el("thead", {}, el("tr", {},
         el("th", { class: "num" }, "#"), el("th", {}, "Track"), el("th", { class: "num" }, "BPM"), el("th", {}, "Key"),
         el("th", {}, "Genre"), el("th", { class: "num" }, "Score"), styled ? el("th", { class: "num" }, "Style") : null,
+        scened ? el("th", { class: "num", title: "How similar the artist is to the seed's artist on Last.fm" }, "Scene") : null,
         el("th", {}, "Transition"), el("th", {}, "Listen / buy")));
       const rows = data.results.map((r, i) => el("tr", {
         onclick: () => {
@@ -447,6 +484,10 @@ function initDiscover() {
           setChildren($("#discover-detail"), 
             el("h3", {}, `${r.artist} - ${r.title}`),
             el("p", { class: "muted" }, `Found as ${r.via} (Last.fm match ${fmt(r.lastfm_match, 2)})`),
+            r.scene_match === null ? null : el("p", { class: "muted" }, r.off_scene
+              ? "Outside the seed artist's scene on Last.fm (listeners overlap, but the artists aren't similar), so it's listed last."
+              : `Scene match ${Math.round(100 * r.scene_match)}%: how similar the artist is to the seed's artist on Last.fm.`),
+            r.bpm_key_source ? el("p", { class: "muted" }, `BPM/key ${r.bpm_key_source}${r.bpm_key_source === "GetSongBPM" ? "" : " (30 seconds of audio: a rough estimate; Rekordbox's analysis of the full track is better)"}.`) : null,
             r.bpm_key_known
               ? el("pre", {}, r.explain.join("\n"))
               : el("p", {}, "No BPM or key data yet, so Setsmith can't judge the mix. Listen via the links; once it's in Rekordbox, Suggest and Build will score it properly."),
@@ -455,16 +496,19 @@ function initDiscover() {
       },
         el("td", { class: "num" }, i + 1),
         el("td", { class: "track" }, `${r.artist} - ${r.title}`),
-        el("td", { class: "num" }, fmt(r.bpm, 1)),
-        el("td", {}, r.key ? keyChip(r.key) : "-"),
+        el("td", { class: "num", title: r.bpm_key_source ? `BPM/key ${r.bpm_key_source}` : "" }, r.bpm && estimated(r) ? `≈${fmt(r.bpm, 1)}` : fmt(r.bpm, 1)),
+        el("td", {}, r.key ? [estimated(r) ? "≈" : "", keyChip(r.key)] : "-"),
         el("td", {}, r.genre || "-"),
         r.bpm_key_known
           ? scoreCell(r.score.total)
           : el("td", { class: "num muted", title: "BPM/key unknown: ranked by Last.fm similarity" }, "?"),
         styled ? el("td", { class: "num" }, r.style_fit ? Math.round(100 * r.style_fit.score) : "-") : null,
+        scened ? (r.off_scene
+          ? el("td", { class: "num muted", title: "Outside the seed artist's scene: listed last" }, "other")
+          : el("td", { class: "num" }, r.scene_match === null ? "-" : `${Math.round(100 * r.scene_match)}%`)) : null,
         el("td", {}, r.bpm_key_known ? `${r.score.suggested_type.replace("_", " ")} ${r.score.suggested_length_bars}b` : "-"),
         el("td", { class: "links" },
-          [safeLink(r.links.soundcloud, "SoundCloud"), safeLink(r.links.beatport, "Beatport"), safeLink(r.links.lastfm, "Last.fm")]
+          [safeLink(r.links.soundcloud, "SoundCloud"), safeLink(r.links.beatport, "Beatport"), safeLink(r.links.lastfm, "Last.fm"), safeLink(r.links.deezer, "Deezer")]
             .filter(Boolean).flatMap((a, j) => (j ? [" · ", a] : [a]))),
       ));
       setChildren($("#discover-table"), head, el("tbody", {}, rows));

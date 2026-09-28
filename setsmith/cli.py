@@ -36,10 +36,16 @@ from setsmith.analysis.learn import (
 from setsmith.analysis.liveset import LiveSet, analyze_liveset, compute_stats, draft_profile
 from setsmith.analysis.tracklist import load_tracklist, match_tracklist
 from setsmith.discovery.discover import ATTRIBUTIONS as DISCOVERY_ATTRIBUTIONS
-from setsmith.discovery.discover import DiscoveryUnavailable, make_sources
+from setsmith.discovery.discover import (
+    Discovery,
+    DiscoveryUnavailable,
+    make_previews,
+    make_sources,
+)
 from setsmith.discovery.discover import discover as run_discovery
 from setsmith.discovery.http import ServiceError
 from setsmith.discovery.keys import SERVICES, key_source, remove_key, set_key
+from setsmith.discovery.song import Song, library_ids, resolve_song, start_warning, with_track
 from setsmith.graph.build import config_key, track_fingerprint
 from setsmith.io.rekordbox_db import (
     KEY_ENV,
@@ -259,6 +265,57 @@ def _resolve_seed(
     return found
 
 
+_SONG_HELP = (
+    'Any song, in your library or not: "Artist - Title", or free text searched on Last.fm. '
+    "Outside your library, BPM and key come from GetSongBPM or the Deezer preview."
+)
+SongOpt = Annotated[str | None, typer.Option("--song", help=_SONG_HELP)]
+
+
+def _resolve_song(
+    collection: Collection, query: str, db: Path | None, cfg: ScoringConfig, as_json: bool
+) -> Song:
+    try:
+        with Store(db) as store, out.status("[dim]looking up the song...[/dim]") as spinner:
+            song = resolve_song(
+                query, collection, store, cfg,
+                on_progress=None if as_json else lambda m: spinner.update(f"[dim]{m}...[/dim]"),
+            )  # fmt: skip
+    except (ServiceError, ValueError) as exc:
+        if as_json:
+            _emit_json({"error": str(exc)})
+        else:
+            err.print(f"[red]Could not look up {query!r}:[/red] {exc}")
+        raise typer.Exit(EXIT_TRACK_NOT_FOUND) from exc
+    return song
+
+
+def _seed_or_song(
+    collection: Collection,
+    track: str | None,
+    track_id: str | None,
+    song: str | None,
+    db: Path | None,
+    cfg: ScoringConfig,
+    as_json: bool,
+) -> tuple[Track, Song | None]:
+    if song is None:
+        return _resolve_seed(collection, track, track_id, as_json), None
+    if track is not None or track_id is not None:
+        raise typer.BadParameter("give --song or --track/--id, not both", param_hint="--song")
+    found = _resolve_song(collection, song, db, cfg, as_json)
+    return found.track, found
+
+
+def _print_song(song: Song | None) -> None:
+    if song is None or song.in_library:
+        return
+    source = f"BPM/key {song.bpm_key_source}" if song.bpm_key_source else "no BPM/key found"
+    out.print(f"[dim]Not in your library; {source}.[/dim]", highlight=False)
+    for warning in song.warnings:
+        out.print(f"[yellow]note:[/yellow] {warning}", highlight=False)
+
+
 def _bpm(t: Track) -> str:
     return f"{t.bpm:g}" if t.bpm else "-"
 
@@ -348,6 +405,7 @@ def suggest(
     track_id: Annotated[
         str | None, typer.Option("--id", help="Seed track by Rekordbox TrackID.")
     ] = None,
+    song: SongOpt = None,
     top: Annotated[int, typer.Option("--top", "-n", min=1, help="Number of suggestions.")] = 10,
     energy_delta: Annotated[
         float,
@@ -372,14 +430,14 @@ def suggest(
     """
     profile = _load_style_opt(style)
     col, _ = _load_analyzed(collection, db, not no_analysis)
-    seed = _resolve_seed(col, track, track_id, as_json)
     cfg = _scoring_config(learned, db)
+    seed, found = _seed_or_song(col, track, track_id, song, db, cfg, as_json)
     results = suggest_next(col, seed, top=top, energy_target=energy_delta, style=profile, cfg=cfg)
 
     if as_json:
         _emit_json(
             {
-                "seed": seed.summary(),
+                "seed": found.to_dict() if found else seed.summary(),
                 "energy_target": energy_delta,
                 "style": profile.name if profile else None,
                 "suggestions": [
@@ -398,6 +456,7 @@ def suggest(
         return
 
     out.print(_seed_line(seed))
+    _print_song(found)
     if profile is not None:
         out.print(f"[dim]Style: {profile.name} (a profile, not endorsed by the artists)[/dim]")
     if not results:
@@ -590,6 +649,14 @@ def build(
     start_id: Annotated[
         str | None, typer.Option("--start-id", help="Opening track by TrackID.")
     ] = None,
+    start_song: Annotated[
+        str | None,
+        typer.Option(
+            "--start-song",
+            help="Opening track that may be outside your library (see suggest --song). It "
+            "can't go into the exported playlist, which then starts at track 2.",
+        ),
+    ] = None,
     bpm_min: Annotated[float | None, typer.Option(help="Lowest BPM allowed.")] = None,
     bpm_max: Annotated[float | None, typer.Option(help="Highest BPM allowed.")] = None,
     genre: Annotated[
@@ -667,9 +734,22 @@ def build(
 ) -> None:
     """Build a set that follows an energy curve, and optionally export it to Rekordbox XML."""
     col, _ = _load_analyzed(collection, db, not no_analysis)
-    start_track = _resolve_track(
-        col, start, start_id, as_json, flags=("--start", "--start-id"), required=False
-    )
+    cfg = _scoring_config(learned, db)
+    song_warnings: list[str] = []
+    if start_song is not None:
+        if start is not None or start_id is not None:
+            raise typer.BadParameter(
+                "give --start-song or --start/--start-id, not both", param_hint="--start-song"
+            )
+        found = _resolve_song(col, start_song, db, cfg, as_json)
+        start_track: Track | None = found.track
+        if not found.in_library:
+            col = with_track(col, found.track)
+            song_warnings = [*found.warnings, start_warning(found.track)]
+    else:
+        start_track = _resolve_track(
+            col, start, start_id, as_json, flags=("--start", "--start-id"), required=False
+        )
     profile = _load_style_opt(style)
     try:
         if curve is not None:
@@ -701,7 +781,6 @@ def build(
     )
 
     store = None if no_cache else Store(db)
-    cfg = _scoring_config(learned, db)
     cfg_key = config_key(cfg, profile)
     try:
         cache = None
@@ -709,6 +788,7 @@ def build(
             pool, _ = filter_pool(col, request, cfg)
             cache = store.load_pair_scores(cfg_key, {track_fingerprint(t) for t in pool})
         generated, graph = run_generation(col, request, cfg=cfg, cache=cache)
+        generated.warnings[:0] = song_warnings
         if store is not None:
             store.save_pair_scores(cfg_key, graph.new_scores)
     except SetGenerationError as exc:
@@ -724,10 +804,10 @@ def build(
 
     exported = None
     if out_path is not None:
-        playlists = [PlaylistSpec(set_name, tuple(generated.track_ids))]
+        playlists = [PlaylistSpec(set_name, library_ids(generated.track_ids))]
         if alternates_playlist and generated.alternate_ids:
             playlists.append(
-                PlaylistSpec(f"{set_name} (alternates)", tuple(generated.alternate_ids))
+                PlaylistSpec(f"{set_name} (alternates)", library_ids(generated.alternate_ids))
             )
         comments = set_comments(generated, set_name) if write_comments else None
         try:
@@ -1745,6 +1825,14 @@ def _attribution_line() -> str:
     return "  ·  ".join(f"{text}: {url}" for text, url in DISCOVERY_ATTRIBUTIONS)
 
 
+def _scene_text(d: Discovery) -> Text | str:
+    if d.scene is None:
+        return "-"
+    if d.off_scene:
+        return Text("other", style="dim")
+    return f"{d.scene:.0%}"
+
+
 @app.command()
 def discover(
     collection: CollectionArg,
@@ -1755,6 +1843,7 @@ def discover(
     track_id: Annotated[
         str | None, typer.Option("--id", help="Seed track by Rekordbox TrackID.")
     ] = None,
+    song: SongOpt = None,
     top: Annotated[int, typer.Option("--top", "-n", min=1, max=50, help="Results to show.")] = 15,
     style: StyleOpt = None,
     learned: LearnedOpt = False,
@@ -1765,14 +1854,14 @@ def discover(
 
     Similar tracks come from Last.fm and BPM/key from GetSongBPM, using your own API keys
     ('setsmith keys set'). Good matches with known BPM and key come first, then tracks
-    with unknown BPM/key ('?', by Last.fm similarity), then known poor matches. Results
-    link to Last.fm, SoundCloud and Beatport so you can listen and add them; nothing is
-    downloaded.
+    with unknown BPM/key ('?', by Last.fm similarity), then known poor matches, then
+    artists from outside the seed artist's scene. Results link to Last.fm, SoundCloud and
+    Beatport so you can listen and add them; nothing is downloaded.
     """
     profile = _load_style_opt(style)
     cfg = _scoring_config(learned, db)
     col, _ = _load_analyzed(collection, db, use_analysis=True)
-    seed = _resolve_seed(col, track, track_id, as_json)
+    seed, found = _seed_or_song(col, track, track_id, song, db, cfg, as_json)
     try:
         with Store(db) as store:
             lfm, bpm = make_sources(store, cfg)
@@ -1780,6 +1869,7 @@ def discover(
                 result = run_discovery(
                     col, seed, lfm, bpm, style=profile, top=top, cfg=cfg,
                     on_progress=None if as_json else lambda m: spinner.update(f"[dim]{m}...[/dim]"),
+                    previews=make_previews(store, cfg),
                 )  # fmt: skip
     except DiscoveryUnavailable as exc:
         err.print(f"[yellow]{exc}[/yellow]")
@@ -1789,9 +1879,13 @@ def discover(
         raise typer.Exit(EXIT_BUILD_ERROR) from exc
 
     if as_json:
-        _emit_json(result.to_dict())
+        data = result.to_dict()
+        if found is not None:
+            data["seed"] = found.to_dict()
+        _emit_json(data)
         return
     out.print(_seed_line(seed))
+    _print_song(found)
     out.print(
         f"[dim]Last.fm suggested {result.candidates} tracks (already in your library: "
         f"{result.in_library}); {len(result.items)} shown.[/dim]"
@@ -1800,8 +1894,8 @@ def discover(
         out.print(f"[yellow]note:[/yellow] {warning}", highlight=False)
     table = Table(pad_edge=False)
     for name, justify in (("#", "right"), ("Track", "left"), ("BPM", "right"), ("Key", "left"),
-                          ("Genre", "left"), ("Score", "right"), ("Transition", "left"),
-                          ("Found via", "left")):  # fmt: skip
+                          ("Genre", "left"), ("Score", "right"), ("Scene", "right"),
+                          ("Transition", "left"), ("Found via", "left")):  # fmt: skip
         table.add_column(name, justify=justify, overflow="fold")  # type: ignore[arg-type]
     for i, d in enumerate(result.items, 1):
         t = d.track
@@ -1813,12 +1907,18 @@ def discover(
             _key(t),
             t.genre or "-",
             _score_text(d.score.total) if known else Text("?", style="dim"),
+            _scene_text(d),
             f"{d.score.suggested_type.value} {d.score.suggested_length_bars}b" if known else "-",
             d.via,
         )
     out.print(table)
     if any(not d.has_tempo_and_key for d in result.items):
         out.print("[dim]? = BPM/key unknown: ranked by Last.fm similarity, not scored.[/dim]")
+    if any(d.scene is not None for d in result.items):
+        out.print(
+            "[dim]Scene = how similar the artist is to the seed's artist on Last.fm; "
+            "'other' = outside that scene, listed last.[/dim]"
+        )
     if result.items:
         first = result.items[0]
         out.print(f"[dim]Listen: {first.links['soundcloud']}  (all links in --json)[/dim]")

@@ -385,16 +385,45 @@ class DiscoveryConfig(_Config):
     lastfm_base: str = "https://ws.audioscrobbler.com/2.0/"
     getsongbpm_base: str = "https://api.getsong.co"
     similar_tracks: int = 50  # Last.fm track.getSimilar results per seed
-    similar_artists: int = 10  # Last.fm artist.getSimilar results per seed
+    similar_artists: int = 10  # similar artists whose top tracks become candidates
     top_tracks_per_artist: int = 5
-    max_lookups: int = 25  # BPM/key lookups per discovery (best Last.fm matches first)
+    # Scene match: how similar a candidate's artist is to the seed's artist on Last.fm.
+    # "Listeners also played" track similarity drifts to mainstream hits for crossover
+    # seeds; artist similarity stays in the seed's scene. This many similar artists are
+    # fetched (in the same request as `similar_artists`) to measure it.
+    scene_artists: int = 100
+    # Candidates below this scene match (or whose artist is not among `scene_artists`)
+    # are "different scene" and listed last.
+    min_scene_match: float = 0.2
+    max_lookups: int = 25  # BPM/key lookups per discovery (most relevant candidates first)
     max_per_artist: int = 2  # keep results varied
     # Results with known BPM and key at or above this score rank first; unknowns follow
-    # (by Last.fm similarity); known poor matches come last.
+    # (by relevance: Last.fm similarity and scene match); known poor matches come last.
     good_match_score: float = 60.0
-    # Polite pacing: GetSongBPM allows 3,000 requests an hour; Last.fm asks for restraint.
+    # BPM and key estimated from Deezer's official 30-second previews, for tracks GetSongBPM
+    # doesn't know. Decoded in memory and discarded; only the numbers are kept.
+    deezer_base: str = "https://api.deezer.com"
+    deezer_search_results: int = 5  # search hits checked for the right artist and title
+    preview_host_suffix: str = ".dzcdn.net"  # previews are only fetched from Deezer's CDN
+    preview_max_bytes: int = 2_000_000  # a 30 s MP3 is about 0.5 MB
+    preview_min_s: float = 10.0  # shorter previews are not analyzed
+    preview_workers: int = 4  # previews analyzed in parallel
+    preview_start_bpm: float = 120.0  # beat tracker prior (house tempo)
+    preview_bpm_fold_min: float = 88.0  # tempos are halved/doubled into [min, 2 x min)
+    preview_min_beats: int = 8  # beats needed to refine the tempo from beat positions
+    # With Essentia installed, two tempo estimators run; when they disagree by more than
+    # this the preview is ambiguous and no BPM is given (a wrong BPM is worse than none).
+    preview_bpm_agree_pct: float = 2.0
+    preview_bpm_decimals: int = 1
+    # 30 seconds of audio gives a rough key: below the harmonic low-confidence flag, so
+    # key scores are pulled toward neutral.
+    preview_key_confidence: float = 0.6
+    preview_cache_days: float = 180.0  # derived BPM/key don't change
+    # Polite pacing: GetSongBPM allows 3,000 requests an hour; Last.fm asks for restraint;
+    # Deezer allows 50 requests per 5 seconds.
     lastfm_min_interval_s: float = 0.25
     getsongbpm_min_interval_s: float = 0.6
+    deezer_min_interval_s: float = 0.15
     timeout_s: float = 15.0
     cache_ttl_days: float = 7.0
     cache_max_entries: int = 20000  # keeps the cache far below Last.fm's 100 MB storage cap
