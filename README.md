@@ -286,7 +286,7 @@ The UI opens at <http://127.0.0.1:8765/> and has three tabs:
 - **Build a set** has the same options as `build`: length, curve, style, BPM range, opening track, genres and learned weights. It shows the set on a **timeline**. Tracks alternate between two deck lanes, colored by Camelot key. Each transition is a shaded overlap with its score between the lanes (hover for the type and length), and an energy strip on top plots the tracks' energy against the curve's targets. Click a track for its tags and the full reasoning for the transitions in and out, plus its alternates. **Export Rekordbox XML** downloads the set and alternates as a new file; **Report** opens the Markdown breakdown.
 - **Suggest next** searches as you type (any words from the artist or title), then ranks what to play next, with an optional style fit column and the reasoning behind each score.
 - **Discover** finds candidate tracks you don't own for after a seed, from the same scene (see [`discover`](#discover-find-tracks-you-dont-own-yet)).
-- **Live sets** shows analyzed sets on the same timeline: where each track played in the recording, measured overlaps, cue points and the loudness curve.
+- **Live sets** analyzes a pasted tracklist (matched to your library: key moves and tempo changes between tracks) and shows analyzed sets on the same timeline. Sets analyzed with a recording in the terminal (`liveset analyze --audio`) also show where each track played, measured overlaps, cue points and the loudness curve.
 
 Safety: the server listens on 127.0.0.1 only by default. It reads your collection but never writes it. It only answers requests addressed to a local host name, which guards against DNS rebinding. It accepts style profiles by name only, never as a file path. Exports are built in a temporary folder and streamed to your browser as downloads. `--host` exposes the UI to your network with no login, and prints a warning (including the AGPL note when Essentia is installed). The API docs are at `/api/docs`.
 
@@ -328,9 +328,9 @@ Without a GetSongBPM key, BPM and key come from Deezer previews only. Without th
 
 GetSongBPM is asked first. For songs it doesn't know, Setsmith finds the track on Deezer's public API (no key needed), checking that the title and an artist match, and analyzes its official 30-second preview. This needs the `audio` extra (`uv sync --extra audio`); with the `essentia` extra, keys use Essentia's EDM profile.
 
-- **BPM:** librosa's beat tracker and Essentia's rhythm extractor must agree within 2%; otherwise no BPM is given, because a wrong tempo is worse than none. Tempos are folded into 88-176 BPM.
+- **BPM:** three tempo estimators vote (librosa's beat tracker and Essentia's rhythm extractor and Percival estimator); the BPM is the mean of those that agree within 2%. If none agree, no BPM is given, because a wrong tempo is worse than none. Against Rekordbox on 60 tracks this gave a BPM for all 60, within 1.5 BPM for 54; most misses were DJ edits at a different tempo from the original. Tempos are folded into 88-176 BPM.
 - **Key:** an estimate. Checked against Rekordbox's own analysis of 40 tracks, Essentia matched the key exactly for about half, and was at most one step off on the Camelot wheel for two thirds. Estimated keys carry a key confidence of 0.6, so their harmonic scores are pulled toward neutral.
-- The preview is decoded in memory and discarded. Only the BPM, key and key strength are stored, cached for 180 days. It's for personal use: Deezer's previews are meant for listening, so check their terms before using this beyond that.
+- The preview is decoded in memory and discarded. Only the BPM, key and key strength are stored, cached per song for 180 days, so repeat searches need no Deezer requests. Deezer search results are kept for only 10 minutes, because the preview links in them expire. It's for personal use: Deezer's previews are meant for listening, so check their terms before using this beyond that.
 
 Once you add a track to Rekordbox, its analysis of the full track replaces these estimates.
 

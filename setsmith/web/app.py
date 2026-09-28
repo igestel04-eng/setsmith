@@ -23,7 +23,8 @@ from pydantic import BaseModel, Field
 from starlette.background import BackgroundTask
 
 from setsmith import __version__
-from setsmith.analysis.liveset import LiveSet, compute_stats
+from setsmith.analysis.liveset import LiveSet, analyze_liveset, compute_stats
+from setsmith.analysis.tracklist import match_tracklist, parse_tracklist
 from setsmith.discovery.discover import (
     DiscoveryUnavailable,
     discover,
@@ -56,6 +57,7 @@ STATIC_DIR = Path(__file__).parent / "static"
 LOCAL_HOSTS = ["127.0.0.1", "localhost", "::1", "testserver"]
 MAX_KEPT_SETS = 20
 MAX_SEARCH_RESULTS = 20
+MAX_TRACKLIST_CHARS = 50_000  # a pasted tracklist; a long set is a few thousand characters
 
 
 class BuildBody(BaseModel):
@@ -72,6 +74,11 @@ class BuildBody(BaseModel):
     exclude_ids: list[str] = []
     learned: bool = False
     name: str | None = Field(default=None, max_length=120)
+
+
+class LiveSetBody(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    tracklist: str = Field(min_length=1, max_length=MAX_TRACKLIST_CHARS)
 
 
 class _State:
@@ -360,6 +367,18 @@ def create_app(
             return []
         with Store(db_path) as store:
             return [{"id": i, "name": n, "created_at": c} for i, n, c in store.list_livesets()]
+
+    @app.post("/api/livesets")
+    def analyze_pasted(body: LiveSetBody) -> dict[str, Any]:
+        """Analyze a pasted tracklist (no recording: that needs the CLI's --audio)."""
+        entries = parse_tracklist(body.tracklist)
+        if not entries:
+            raise HTTPException(400, "no tracks found in the tracklist")
+        matches = match_tracklist(state.collection, entries)
+        ls = analyze_liveset(body.name.strip(), "pasted in the web UI", matches, align=False)
+        with Store(state.db or default_db_path()) as store:
+            liveset_id = store.save_liveset(ls.to_dict())
+        return {"id": liveset_id, "liveset": ls.to_dict(), "stats": compute_stats(ls).to_dict()}
 
     @app.get("/api/livesets/{liveset_id}")
     def liveset(liveset_id: int) -> dict[str, Any]:

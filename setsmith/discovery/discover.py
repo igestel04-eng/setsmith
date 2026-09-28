@@ -41,6 +41,7 @@ from setsmith.styles.profile import StyleFit, StyleProfile
 
 ATTRIBUTIONS = [lastfm.ATTRIBUTION, getsongbpm.ATTRIBUTION, preview.ATTRIBUTION]
 _SECONDS_PER_DAY = 86400
+_SECONDS_PER_MINUTE = 60
 
 
 class DiscoveryUnavailable(RuntimeError):
@@ -138,7 +139,12 @@ def _cache(store: Store | None, cfg: ScoringConfig) -> _StoreCache | None:
 
 
 def _client(
-    name: str, base: str, interval: float, store: Store | None, cfg: ScoringConfig
+    name: str,
+    base: str,
+    interval: float,
+    store: Store | None,
+    cfg: ScoringConfig,
+    ttl_s: float | None = None,
 ) -> JsonClient:
     dc = cfg.discovery
     return JsonClient(
@@ -147,7 +153,7 @@ def _client(
         min_interval_s=interval,
         timeout_s=dc.timeout_s,
         cache=_cache(store, cfg),
-        cache_ttl_s=dc.cache_ttl_days * _SECONDS_PER_DAY,
+        cache_ttl_s=dc.cache_ttl_days * _SECONDS_PER_DAY if ttl_s is None else ttl_s,
     )
 
 
@@ -181,7 +187,8 @@ def make_previews(
     if not preview.available():
         return None
     dc = cfg.discovery
-    client = _client("Deezer", dc.deezer_base, dc.deezer_min_interval_s, store, cfg)
+    ttl = dc.deezer_cache_minutes * _SECONDS_PER_MINUTE
+    client = _client("Deezer", dc.deezer_base, dc.deezer_min_interval_s, store, cfg, ttl)
     return DeezerPreviews(client, _cache(store, cfg), cfg)
 
 

@@ -32,6 +32,9 @@ _SECONDS_PER_DAY = 86400
 _ID3_HEADER = 10  # "ID3", version (2), flags (1), size (4 syncsafe bytes)
 _ID3_FOOTER_FLAG = 0x10
 _SYNCSAFE_BITS = 7
+_MIN_VOTES = 2  # estimators that must agree on a tempo
+# Bumped when the estimate method changes, so cached estimates are redone.
+_METHOD_VERSION = 2  # 2: three-way tempo vote
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,6 +88,17 @@ def fold_bpm(bpm: float, low: float) -> float:
     return bpm
 
 
+def vote_bpm(estimates: list[float], agree_pct: float) -> float | None:
+    """The mean of the largest group of estimates that agree within `agree_pct` of each
+    other, if at least two do; None when every estimate disagrees."""
+    best: list[float] = []
+    for anchor in estimates:
+        group = [e for e in estimates if abs(e - anchor) <= max(e, anchor) * agree_pct / 100]
+        if len(group) > len(best):
+            best = group
+    return sum(best) / len(best) if len(best) >= _MIN_VOTES else None
+
+
 def analyze_audio(
     data: bytes, cfg: ScoringConfig = DEFAULT_CONFIG
 ) -> tuple[float | None, str | None, float | None, str]:
@@ -123,7 +137,7 @@ def analyze_audio(
         import essentia
         import essentia.standard as es
 
-        essentia.log.warningActive = False
+        essentia.log.warningActive = essentia.log.infoActive = False  # keep stdout clean
         hi = ac.essentia_sample_rate
         y_hi = mono if native_sr == hi else librosa.resample(mono, orig_sr=native_sr, target_sr=hi)
         y_hi = np.ascontiguousarray(y_hi, dtype=np.float32)
@@ -131,11 +145,18 @@ def analyze_audio(
             y_hi
         )
         parsed = parse_key(f"{key} {scale}")
-        essentia_bpm = fold_bpm(
-            float(es.RhythmExtractor2013(method="multifeature")(y_hi)[0]), dc.preview_bpm_fold_min
+        # Three tempo estimators vote: beat tracking can lock onto a syncopated pattern
+        # (4/3 or 3/4 of the tempo) that the other two don't share.
+        estimates = [
+            librosa_bpm,
+            float(es.RhythmExtractor2013(method="multifeature")(y_hi)[0]),
+            float(es.PercivalBpmEstimator(sampleRate=hi)(y_hi)),
+        ]
+        voted = vote_bpm(
+            [fold_bpm(e, dc.preview_bpm_fold_min) for e in estimates if e > 0],
+            dc.preview_bpm_agree_pct,
         )
-        agree = abs(essentia_bpm - librosa_bpm) <= essentia_bpm * dc.preview_bpm_agree_pct / 100
-        bpm = round(essentia_bpm, dc.preview_bpm_decimals) if agree else None
+        bpm = round(voted, dc.preview_bpm_decimals) if voted else None
         return bpm, (str(parsed) if parsed else None), float(strength), "essentia"
 
     with warnings.catch_warnings():
@@ -197,12 +218,45 @@ class DeezerPreviews:
             return DeezerHit(item["id"], who, item.get("title") or title, preview, link)
         return None
 
-    def _cache_key(self, hit: DeezerHit) -> str:
-        return f"Deezer-preview:v{self.cfg.analysis.version}:{hit.deezer_id}"
+    def _cache_key(self, artist: str, title: str) -> str:
+        """Estimates are cached per song, so repeat lookups need no Deezer request at all
+        (search results are only kept briefly: their preview links expire)."""
+        from setsmith.discovery.discover import identity
+
+        artists, clean = identity(artist, title, packed=False)
+        version = f"{self.cfg.analysis.version}.{_METHOD_VERSION}"
+        return f"Deezer-estimate:v{version}:{'|'.join(sorted(artists))}:{clean}"
 
     def _estimate(self, hit: DeezerHit) -> PreviewEstimate:
         bpm, camelot, strength, method = self.analyze(self.fetch(hit.preview, self.cfg), self.cfg)
         return PreviewEstimate(bpm, camelot, strength, method, hit)
+
+    def _cached(self, artist: str, title: str) -> PreviewEstimate | None:
+        if self.cache is None:
+            return None
+        ttl = self.cfg.discovery.preview_cache_days * _SECONDS_PER_DAY
+        body = self.cache.cache_get(self._cache_key(artist, title), ttl)
+        if body is None:
+            return None
+        c = json.loads(body)
+        hit = DeezerHit(c["id"], c["artist"], c["title"], "", c["link"])
+        return PreviewEstimate(c["bpm"], c["camelot"], c["strength"], c["method"], hit)
+
+    def _store(self, artist: str, title: str, estimate: PreviewEstimate) -> None:
+        if self.cache is None:
+            return
+        hit = estimate.hit
+        body = {
+            "bpm": estimate.bpm,
+            "camelot": estimate.camelot,
+            "strength": estimate.key_strength,
+            "method": estimate.method,
+            "id": hit.deezer_id,
+            "artist": hit.artist,
+            "title": hit.title,
+            "link": hit.link,
+        }
+        self.cache.cache_put(self._cache_key(artist, title), json.dumps(body))
 
     def lookup_many(
         self,
@@ -215,11 +269,13 @@ class DeezerPreviews:
         analysis run in parallel threads.
         """
         dc = self.cfg.discovery
-        ttl = dc.preview_cache_days * _SECONDS_PER_DAY
         results: list[PreviewEstimate | None] = [None] * len(songs)
         warnings_: list[str] = []
         todo: list[tuple[int, DeezerHit]] = []
         for i, (artist, title) in enumerate(songs):
+            results[i] = self._cached(artist, title)
+            if results[i] is not None:
+                continue
             if on_progress:
                 on_progress(f"finding {artist} - {title} on Deezer ({i + 1}/{len(songs)})")
             try:
@@ -227,15 +283,7 @@ class DeezerPreviews:
             except ServiceError as exc:
                 warnings_.append(str(exc))
                 break  # stop hammering a failing service
-            if hit is None:
-                continue
-            cached = self.cache.cache_get(self._cache_key(hit), ttl) if self.cache else None
-            if cached is not None:
-                c = json.loads(cached)
-                results[i] = PreviewEstimate(
-                    c["bpm"], c["camelot"], c["strength"], c["method"], hit
-                )
-            else:
+            if hit is not None:
                 todo.append((i, hit))
         if not todo:
             return results, warnings_
@@ -251,14 +299,7 @@ class DeezerPreviews:
                     failed += 1
                     continue
                 results[i] = estimate
-                if self.cache is not None:
-                    body = {
-                        "bpm": estimate.bpm,
-                        "camelot": estimate.camelot,
-                        "strength": estimate.key_strength,
-                        "method": estimate.method,
-                    }
-                    self.cache.cache_put(self._cache_key(estimate.hit), json.dumps(body))
+                self._store(*songs[i], estimate)
         if failed:
             warnings_.append(f"{failed} Deezer preview(s) could not be fetched or decoded")
         return results, warnings_

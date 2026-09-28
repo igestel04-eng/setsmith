@@ -525,13 +525,40 @@ function initDiscover() {
 
 let livesetsLoaded = false;
 
-async function loadLivesets() {
-  if (livesetsLoaded) return;
+async function loadLivesets(force = false) {
+  if (livesetsLoaded && !force) return;
   livesetsLoaded = true;
   const select = $("#liveset-select");
   const sets = await api("/api/livesets");
-  sets.forEach((s) => select.append(el("option", { value: s.id }, `#${s.id} ${s.name}`)));
+  setChildren(select, el("option", { value: "" }, sets.length ? "Choose..." : "None yet: analyze one above"),
+    ...sets.map((s) => el("option", { value: s.id }, `#${s.id} ${s.name}`)));
+}
+
+function initLivesets() {
+  const select = $("#liveset-select");
   select.addEventListener("change", () => select.value && showLiveset(select.value));
+  const form = $("#liveset-form");
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const button = $("button[type=submit]", form);
+    button.disabled = true;
+    status($("#liveset-status"), "Matching the tracklist to your library...");
+    try {
+      const data = await api("/api/livesets", {
+        method: "POST",
+        body: JSON.stringify({ name: String(f.get("name") || "").trim(), tracklist: String(f.get("tracklist") || "") }),
+      });
+      await loadLivesets(true);
+      select.value = String(data.id);
+      await showLiveset(data.id);
+      status($("#liveset-status"), "");
+    } catch (err) {
+      status($("#liveset-status"), `Could not analyze the set: ${err.message}`, true);
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 async function showLiveset(id) {
@@ -539,9 +566,11 @@ async function showLiveset(id) {
   const ls = data.liveset, stats = data.stats;
   $("#liveset-result").hidden = false;
   $("#liveset-name").textContent = ls.name;
+  const missing = ls.matches.filter((m) => !m.track_id && !m.unknown).map((m) => m.raw);
   $("#liveset-summary").textContent =
     `${stats.matched} matched of ${ls.matches.length} lines` + (ls.duration_s ? ` · recording ${mmss(ls.duration_s)}` : "") +
-    (ls.spans.length ? ` · timings: ${ls.spans[0].method === "dtw" ? "aligned" : "approximate"}` : " · no recording");
+    (ls.spans.length ? ` · timings: ${ls.spans[0].method === "dtw" ? "aligned" : "approximate"}` : " · no recording, so the timeline spacing is illustrative") +
+    (missing.length ? `. Not in your library: ${missing.join("; ")}` : "");
 
   const byPos = Object.fromEntries(ls.matches.map((m) => [m.position, m]));
   const spans = ls.spans.length
@@ -583,6 +612,7 @@ async function init() {
   document.querySelectorAll(".search").forEach(initSearch);
   initBuild();
   initSuggest();
+  initLivesets();
   initDiscover();
   try {
     const info = await api("/api/info");

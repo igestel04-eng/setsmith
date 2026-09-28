@@ -112,6 +112,15 @@ def test_strip_id3() -> None:
     assert strip_id3(b"\xff\xfbMP3") == b"\xff\xfbMP3"
 
 
+def test_vote_bpm() -> None:
+    from setsmith.discovery.preview import vote_bpm
+
+    assert vote_bpm([160.1, 119.9, 120.2], 2.0) == pytest.approx(120.05)  # two of three
+    assert vote_bpm([121.0, 121.5, 120.8], 2.0) == pytest.approx(121.1)
+    assert vote_bpm([93.9, 120.0, 161.5], 2.0) is None  # no two agree
+    assert vote_bpm([120.0], 2.0) is None
+
+
 @pytest.mark.parametrize(("bpm", "folded"), [(61.0, 122.0), (244.0, 122.0), (122.0, 122.0)])
 def test_fold_bpm(bpm: float, folded: float) -> None:
     assert fold_bpm(bpm, 88.0) == folded
@@ -145,8 +154,13 @@ def test_lookup_many_caches_and_reports() -> None:
     results, notes = dp.lookup_many(songs)
     assert [r.bpm if r else None for r in results] == [121.5, None, 121.5]
     assert len(fetched) == 2 and not notes
-    again, _ = previews(cache=cache)[0].lookup_many(songs)
+    repeat, repeat_client, repeat_fetched = previews(cache=cache)
+    again, _ = repeat.lookup_many(songs)
     assert [r.camelot if r else None for r in again] == ["8A", None, "8A"]  # from the cache
+    assert again[0] and again[0].hit.link == "https://www.deezer.com/track/1"
+    # Cached songs need no Deezer request (search results hold expiring preview links).
+    assert [c[1]["q"] for c in repeat_client.calls] == ["&ME The Rapture Pt.II"]
+    assert not repeat_fetched
 
     def broken(url: str, cfg: Any) -> bytes:
         raise ServiceError("could not fetch a Deezer preview")

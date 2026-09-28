@@ -411,14 +411,17 @@ class DiscoveryConfig(_Config):
     preview_start_bpm: float = 120.0  # beat tracker prior (house tempo)
     preview_bpm_fold_min: float = 88.0  # tempos are halved/doubled into [min, 2 x min)
     preview_min_beats: int = 8  # beats needed to refine the tempo from beat positions
-    # With Essentia installed, two tempo estimators run; when they disagree by more than
-    # this the preview is ambiguous and no BPM is given (a wrong BPM is worse than none).
+    # With Essentia installed, three tempo estimators vote: the BPM is the mean of those
+    # that agree within this; when none do, no BPM is given (a wrong BPM is worse than none).
     preview_bpm_agree_pct: float = 2.0
     preview_bpm_decimals: int = 1
     # 30 seconds of audio gives a rough key: below the harmonic low-confidence flag, so
     # key scores are pulled toward neutral.
     preview_key_confidence: float = 0.6
     preview_cache_days: float = 180.0  # derived BPM/key don't change
+    # Deezer search results are kept briefly: the preview links in them expire after about
+    # 15 minutes.
+    deezer_cache_minutes: float = 10.0
     # Polite pacing: GetSongBPM allows 3,000 requests an hour; Last.fm asks for restraint;
     # Deezer allows 50 requests per 5 seconds.
     lastfm_min_interval_s: float = 0.25

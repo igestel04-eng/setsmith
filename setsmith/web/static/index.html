@@ -143,11 +143,24 @@
     </section>
 
     <section id="tab-livesets" class="tab" role="tabpanel" hidden>
+      <form id="liveset-form" class="panel form-grid" autocomplete="off">
+        <label>Set name
+          <input name="name" required maxlength="120" placeholder="e.g. Keinemusik at Tulum">
+        </label>
+        <label class="full">Tracklist
+          <textarea name="tracklist" required rows="8" placeholder="Paste one track per line, e.g.&#10;01. Rampa - Champion&#10;[00:06:10] &amp;ME - The Rapture Pt.III&#10;ID - ID"></textarea>
+        </label>
+        <p class="muted small full">Paste a tracklist from a set you played or like. Setsmith matches
+          each line to your library and measures the key moves and tempo changes between them.
+          To measure real overlaps and cue points, analyze a recording in the terminal with
+          <code>setsmith liveset analyze … --audio set.mp3</code>.</p>
+        <div class="actions"><button type="submit" class="primary">Analyze set</button></div>
+      </form>
+      <p id="liveset-status" class="status" role="status"></p>
       <div class="panel">
         <label>Analyzed set
           <select id="liveset-select"><option value="">Choose...</option></select>
         </label>
-        <p class="muted small">Analyze sets with <code>setsmith liveset analyze</code>.</p>
       </div>
       <div id="liveset-result" hidden>
         <h2 id="liveset-name"></h2>
